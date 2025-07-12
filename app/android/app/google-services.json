@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "183124121064",
+    "project_id": "get-sayor",
+    "storage_bucket": "get-sayor.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:183124121064:android:2f3a9e04ff26285f5ac05d",
+        "android_client_info": {
+          "package_name": "com.getsayor.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAa9gqoWQDKboMe4lIofSz8_r49Vmu8zDk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

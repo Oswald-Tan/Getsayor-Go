@@ -1,0 +1,135 @@
+GET http://localhost:8080/api/v1/auth-web/verify
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiaWF0IjoxNzM1NzU4MjU0LCJleHAiOjE3MzU3NjE4NTR9.QqXUXcu0kc_FbciE1Zm7J_8SlO_PfgFjCDgrl4ywBgI
+
+###
+POST http://localhost:8080/api/v1/auth-web/login
+Content-Type: application/json
+
+{
+    "email": "admin@gmail.com",
+    "password": "admin123"
+}
+
+### 
+DELETE http://localhost:8080/api/v1/auth-web/logout
+
+###
+GET http://localhost:8080/api/v1/refresh
+
+
+###
+// create user
+POST http://localhost:8080/api/v1/users/user
+Content-Type: application/json
+
+{
+  "username": "maya",
+  "email": "maya@gmail.com",
+  "password": "12345678",
+  "confirmPassword": "12345678",
+  "roleName": "user"
+}
+
+###
+// get all user
+GET http://localhost:8080/api/v1/users/users
+
+###
+// get single user
+GET http://localhost:8080/api/v1/users/user/1
+
+###
+// update user
+PATCH  http://localhost:8080/api/v1/users/user/6
+Content-Type: application/json
+
+{
+  "username": "maya ruo",
+  "email": "maya@gmail.com",
+  "password": "",
+  "confirmPassword": "",
+  "roleName": "user"
+}
+
+###
+// delete user
+DELETE http://localhost:8080/api/v1/users/user/6
+
+###
+//login
+POST http://localhost:8080/api/v1/auth-web/handle-login
+Content-Type: application/json
+
+{
+    "email": "admin@gmail.com",
+    "password": "admin123"
+}
+
+###
+//login
+POST http://localhost:8080/api/v1/auth-web/handle-login
+Content-Type: application/json
+
+{
+    "email": "oswaldtanlee44@gmail.com",
+    "password": "12345678"
+}
+
+###
+//me
+GET http://localhost:8080/api/v1/auth-web/me
+
+###
+//logout
+DELETE  http://localhost:8080/api/v1/auth-web/handle-logout
+
+###
+//get all product
+GET http://localhost:8080/api/v1/products/products
+
+###
+//get single product
+GET http://localhost:8080/api/v1/products/product/3
+
+###
+// create product
+POST http://localhost:8080/api/v1/products/product
+Content-Type: application/json
+
+{
+  "name": "Product 6",
+  "price": "9936"
+}
+
+###
+// update product
+PATCH http://localhost:8080/api/v1/products/product/5
+Content-Type: application/json
+
+{
+  "name": "Product Updated",
+  "price": "974"
+}
+
+###
+// delete product
+DELETE http://localhost:8080/api/v1/products/product/2
+
+
+
+
+
+
+###
+//login
+POST http://localhost:8080/api/v1/auth/login
+Content-Type: application/json
+
+{
+    "email": "oswaldtanlee44@gmail.com",
+    "password": "12345678"
+}
+
+###
+POST http://localhost:8080/api/v1/pesanan
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJvc3dhbGR0YW5sZWU0NEBnbWFpbC5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTczNjQxNjY2MiwiZXhwIjoxNzM2NTAzMDYyfQ.JsOPELXTy2qgv04N-lkHo9yed__mkW5sKy5x-m_P0EU
