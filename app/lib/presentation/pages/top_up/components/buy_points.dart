@@ -3,26 +3,24 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:getsayor/data/model/poin_model.dart';
-import 'package:getsayor/data/services/navigation_service.dart';
 import 'package:getsayor/data/services/topup_service.dart';
 import 'package:getsayor/data/services/poin_service.dart';
 import 'package:getsayor/presentation/pages/loading_page.dart';
+import 'package:getsayor/presentation/pages/top_up/components/Transaction_status_page.dart';
 import 'package:getsayor/presentation/pages/top_up/components/pendingTransaction.dart';
-import 'package:getsayor/presentation/pages/top_up/components/success_page.dart';
 import 'package:intl/intl.dart';
 import 'package:onepref/onepref.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 final numberFormat = NumberFormat("#,##0", "id_ID");
-
 final formattedDate = DateFormat("dd MMMM yyyy - HH:mm", "id_ID");
 
 class BuyPoints extends StatefulWidget {
   const BuyPoints({super.key});
-
   static String routeName = "/buypoints";
 
   @override
@@ -30,6 +28,7 @@ class BuyPoints extends StatefulWidget {
 }
 
 class _BuyPointsState extends State<BuyPoints> {
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   List<Poin> poinList = [];
   List<ProductDetails> _products = [];
   late final IApEngine iApEngine = IApEngine();
@@ -40,88 +39,121 @@ class _BuyPointsState extends State<BuyPoints> {
   bool _isPurchaseHandlerLocked = false;
   final Set<String> _completedPurchases = {};
   String? _errorMessage;
+  Timer? _retryTimer;
+  Map<String, bool> _buttonLoadingStates = {};
 
   @override
   void initState() {
     super.initState();
-    _loadReward();
-    _loadPoins();
-    _retryPendingTransactions();
+    _initConnectivityListener();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _loadUserData();
+      await _loadCompletedPurchaseIds();
+      await _loadReward();
+      await _loadPoins();
+      _retryPendingTransactions();
+    });
 
-    iApEngine.inAppPurchase.restorePurchases();
+    StreamSubscription<List<PurchaseDetails>>? purchaseSubscription;
+    purchaseSubscription = iApEngine.inAppPurchase.purchaseStream.listen(
+      (purchases) => _handlePurchases(purchases),
+      onDone: () => purchaseSubscription?.cancel(),
+      onError: (error) => debugPrint("Purchase stream error: $error"),
+    );
 
-    iApEngine.inAppPurchase.purchaseStream.listen((purchases) {
-      _handlePurchases(purchases);
+    _startRetryTimer();
+  }
+
+  // Tambahkan listener konektivitas
+  void _initConnectivityListener() {
+    _connectivitySubscription = Connectivity()
+        .onConnectivityChanged
+        .listen((List<ConnectivityResult> results) {
+      if (results.isNotEmpty && results.first != ConnectivityResult.none) {
+        _retryPendingTransactions();
+      }
     });
   }
 
   @override
   void dispose() {
+    _retryTimer?.cancel();
+    _connectivitySubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    OnePref.setString('token', prefs.getString('token') ?? '');
+    OnePref.setString('userId', prefs.getString('userId') ?? '');
+  }
+
+  Future<void> refreshToken() async {
+    try {
+      debugPrint("Refreshing token...");
+      final prefs = await SharedPreferences.getInstance();
+      final newToken =
+          "refreshed_token_${DateTime.now().millisecondsSinceEpoch}";
+      await prefs.setString('token', newToken);
+      OnePref.setString('token', newToken);
+      debugPrint("Token refreshed successfully");
+    } catch (e) {
+      debugPrint("Token refresh failed: $e");
+      throw TopUpException('Gagal memperbarui sesi. Silakan login ulang',
+          retryable: false);
+    }
+  }
+
+  void _startRetryTimer() {
+    _retryTimer = Timer.periodic(const Duration(minutes: 5), (timer) async {
+      if (_isPurchaseHandlerLocked) return;
+      await _retryPendingTransactions();
+    });
+  }
+
+  Future<void> _loadCompletedPurchaseIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    final completedIds = prefs.getStringList('completed_purchase_ids') ?? [];
+    _completedBackendPurchaseIds.addAll(completedIds);
   }
 
   Future<void> _handlePurchases(List<PurchaseDetails> purchases) async {
     if (_isPurchaseHandlerLocked) return;
 
     _isPurchaseHandlerLocked = true;
-    debugPrint("=== LOCK ACQUIRED ===");
+    final timer = Timer(const Duration(seconds: 30), () {
+      _isPurchaseHandlerLocked = false;
+    });
 
     try {
-      final pending = await PendingTransactionStorage.getPendingTransactions();
-      final pendingIds = pending.map((t) => t.purchaseId).toSet();
-
-// Modifikasi kondisi newPurchases
       final newPurchases = purchases
           .where((p) =>
               p.purchaseID != null &&
+              p.purchaseID!.isNotEmpty &&
               !_completedPurchases.contains(p.purchaseID!) &&
-              !pendingIds.contains(
-                  p.purchaseID!) && // Hindari duplikasi dengan pending
-              p.status == PurchaseStatus.purchased)
+              !_completedBackendPurchaseIds.contains(p.purchaseID!) &&
+              (p.pendingCompletePurchase || !p.pendingCompletePurchase))
           .toList();
 
       if (newPurchases.isEmpty) return;
 
-      debugPrint("Processing ${newPurchases.length} purchases");
+      for (final purchase in newPurchases) {
+        final poin = poinList.firstWhere(
+          (p) =>
+              p.productId == purchase.productID ||
+              p.promoProductId == purchase.productID,
+          orElse: () => Poin(id: 0, poin: 0, productId: ""),
+        );
 
-      // Kelompokkan berdasarkan productID dan ambil yang terbaru
-      final Map<String, List<PurchaseDetails>> grouped = {};
-      for (final p in newPurchases) {
-        grouped.putIfAbsent(p.productID, () => []).add(p);
-      }
-
-      for (final productId in grouped.keys) {
-        final productPurchases = grouped[productId]!;
-
-        // Urutkan dari yang terbaru
-        productPurchases.sort((a, b) {
-          final aDate = _parseTransactionDate(a.transactionDate);
-          final bDate = _parseTransactionDate(b.transactionDate);
-          return bDate.compareTo(aDate);
-        });
-
-        final purchase = productPurchases.first;
-
-        // Tandai SEMUA pembelian dalam grup ini sebagai selesai
-        for (final p in productPurchases) {
-          _completedPurchases.add(p.purchaseID!);
-          debugPrint("Marked as completed: ${p.purchaseID}");
-        }
-
-        // Proses hanya pembelian terbaru
+        if (poin.poin == 0) continue;
         await _processPurchase(purchase);
       }
     } catch (e) {
-      debugPrint("Error in purchase handling: $e");
+      debugPrint("Error in background purchase handling: $e");
     } finally {
+      timer.cancel();
       _isPurchaseHandlerLocked = false;
-      debugPrint("=== LOCK RELEASED ===");
     }
-  }
-
-  DateTime _parseTransactionDate(String? dateString) {
-    if (dateString == null) return DateTime(0);
-    return DateTime.tryParse(dateString) ?? DateTime(0);
   }
 
   Map<K, List<T>> groupBy<T, K>(Iterable<T> items, K Function(T) keyFunction) {
@@ -217,23 +249,6 @@ class _BuyPointsState extends State<BuyPoints> {
 
   Future<void> _processPurchase(PurchaseDetails purchase) async {
     try {
-      // [0] Pastikan status masih valid sebelum proses
-      if (purchase.status != PurchaseStatus.purchased) {
-        debugPrint("Purchase status invalid: ${purchase.status}");
-        return;
-      }
-
-      // [1] Cek duplikasi SEBELUM memulai loading
-      if (_completedBackendPurchaseIds.contains(purchase.purchaseID!)) {
-        debugPrint(
-            "Purchase already processed with backend: ${purchase.purchaseID}");
-        return;
-      }
-
-      if (mounted) {
-        setState(() => isLoading = true);
-      }
-
       final purchasedPoin = poinList.firstWhere(
         (poin) =>
             poin.productId == purchase.productID ||
@@ -242,109 +257,112 @@ class _BuyPointsState extends State<BuyPoints> {
         orElse: () => Poin(id: 0, poin: 0, productId: ""),
       );
 
-      if (purchasedPoin.poin > 0) {
+      if (purchasedPoin.poin <= 0) {
+        await _completePurchase(purchase); // Gunakan helper function
+        return;
+      }
+
+      final invoiceNumber =
+          "INV-${DateFormat('yyyyMMdd').format(DateTime.now())}-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}";
+
+      // Simpan transaksi ke pending storage terlebih dahulu
+      await PendingTransactionStorage.addPendingTransaction(
+        PendingTransaction(
+          purchaseId: purchase.purchaseID!,
+          points: purchasedPoin.poin,
+          price: _getProduct(purchase.productID)?.price ?? "",
+          date: DateTime.now(),
+          invoiceNumber: invoiceNumber,
+        ),
+      );
+
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? '';
+        final userId = prefs.getString('userId') ?? '';
+
+        if (token.isEmpty)
+          throw TopUpException('User not authenticated', retryable: false);
+        if (userId.isEmpty)
+          throw TopUpException('User ID not found', retryable: false);
+
+        await _sendTopUpToBackend(
+          token: token,
+          userId: userId,
+          points: purchasedPoin.poin,
+          price: _getProduct(purchase.productID)?.price ?? "",
+          purchaseId: purchase.purchaseID!,
+          invoiceNumber: invoiceNumber,
+          isBackground: true,
+        );
+
+        // Jika sukses, hapus dari pending dan tandai sebagai selesai
+        await PendingTransactionStorage.removePendingTransaction(
+            purchase.purchaseID!);
+        await _saveCompletedPurchaseId(purchase.purchaseID!);
+
+        // Update poin pengguna
         final newReward = reward + purchasedPoin.poin;
         OnePref.setInt("points", newReward);
-
         if (mounted) {
           setState(() => reward = newReward);
         }
 
-        ProductDetails? purchasedProduct = _getProduct(purchase.productID);
-        if (purchasedProduct == null) {
-          throw Exception("Product details not found");
-        }
-
-        ProductDetails? mainProduct = _getProduct(purchasedPoin.productId);
-        String displayPrice = purchasedProduct.price;
-        String? originalPrice;
-
-        if (purchasedPoin.promoProductId == purchase.productID &&
-            mainProduct != null) {
-          originalPrice = mainProduct.price;
-        }
-
-        final invoiceNumber =
-            "INV-${DateFormat('yyyyMMdd').format(DateTime.now())}-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}";
-
-        try {
-          // [1] Cek token dari SharedPreferences langsung
-          final prefs = await SharedPreferences.getInstance();
-          final token = prefs.getString('token') ?? '';
-          debugPrint("Token from SharedPreferences: $token");
-
-          if (token.isEmpty) {
-            throw TopUpException('User not authenticated', retryable: false);
+        // KONSUMSI PRODUK SETELAH BERHASIL DIPROSES (HANYA ANDROID)
+        if (Platform.isAndroid) {
+          try {
+            final InAppPurchaseAndroidPlatformAddition androidAddition =
+                iApEngine.inAppPurchase.getPlatformAddition<
+                    InAppPurchaseAndroidPlatformAddition>();
+            await androidAddition.consumePurchase(purchase);
+            debugPrint("Produk dikonsumsi: ${purchase.productID}");
+          } catch (e) {
+            debugPrint("Gagal mengonsumsi produk: $e");
+            await _savePendingConsumption(purchase.purchaseID!);
           }
-
-          // [2] Dapatkan userId dari SharedPreferences
-          final userId = prefs.getString('userId') ?? '';
-          debugPrint("UserID from SharedPreferences: $userId");
-
-          if (userId.isEmpty) {
-            throw TopUpException('User ID not found', retryable: false);
-          }
-
-          // [2] Tandai SEBELUM mengirim ke backend
-          _completedBackendPurchaseIds.add(purchase.purchaseID!);
-
-          await _sendTopUpToBackend(
-            token: token,
-            userId: userId,
-            points: purchasedPoin.poin,
-            price: displayPrice,
-            purchaseId: purchase.purchaseID!,
-            invoiceNumber: invoiceNumber,
-          );
-        } catch (e) {
-          // [3] Jika gagal, hapus dari daftar agar bisa dicoba ulang
-          _completedBackendPurchaseIds.remove(purchase.purchaseID!);
-          debugPrint("Warning: Top-up submission had issues: $e");
-        } finally {
-          await iApEngine.inAppPurchase.completePurchase(purchase);
         }
-
-        // Ganti navigasi dengan menggunakan navigatorKey
-        if (navigatorKey.currentState != null) {
-          navigatorKey.currentState!.push(
-            MaterialPageRoute(
-              builder: (context) => SuccessPage(
-                points: purchasedPoin.poin,
-                price: displayPrice,
-                originalPrice: originalPrice,
-                date: DateTime.now(),
-                invoiceNumber: invoiceNumber,
-              ),
-            ),
-          );
-        }
+      } catch (e) {
+        // Biarkan transaksi tetap di pending storage untuk dicoba ulang nanti
+        debugPrint("Background top-up submission failed: $e");
+      } finally {
+        await _completePurchase(purchase);
       }
     } catch (e) {
-      debugPrint("Error processing purchase: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
+      debugPrint("Error processing background purchase: $e");
+      await _completePurchase(purchase);
+    }
+  }
+
+  Future<void> _completePurchase(PurchaseDetails purchase) async {
+    try {
+      await iApEngine.inAppPurchase.completePurchase(purchase);
+    } catch (e) {
+      debugPrint("Error completing purchase: $e");
+    }
+  }
+
+  Future<void> _savePendingConsumption(String purchaseId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final pending = prefs.getStringList('pending_consumptions') ?? [];
+    if (!pending.contains(purchaseId)) {
+      pending.add(purchaseId);
+      await prefs.setStringList('pending_consumptions', pending);
     }
   }
 
   Future<void> _retryPendingTransactions() async {
-    final pendingTransactions =
-        await PendingTransactionStorage.getPendingTransactions();
-
+    debugPrint("Retrying pending transactions...");
     final token = OnePref.getString('token') ?? '';
     final userId = OnePref.getString('userId') ?? '';
 
-    // Tambahkan pengecekan
     if (token.isEmpty || userId.isEmpty) {
       debugPrint("Skipping retry: User not authenticated");
       return;
     }
+
+    final pendingTransactions =
+        await PendingTransactionStorage.getPendingTransactions();
+    debugPrint("Found ${pendingTransactions.length} pending transactions");
 
     for (final transaction in pendingTransactions) {
       try {
@@ -357,6 +375,17 @@ class _BuyPointsState extends State<BuyPoints> {
           invoiceNumber: transaction.invoiceNumber,
           isRetry: true,
         );
+
+        // Jika sukses, hapus dari pending dan update poin
+        await PendingTransactionStorage.removePendingTransaction(
+            transaction.purchaseId);
+        await _saveCompletedPurchaseId(transaction.purchaseId);
+
+        final newReward = reward + transaction.points;
+        OnePref.setInt("points", newReward);
+        if (mounted) {
+          setState(() => reward = newReward);
+        }
       } catch (e) {
         debugPrint("Retry failed for ${transaction.purchaseId}: $e");
       }
@@ -371,19 +400,10 @@ class _BuyPointsState extends State<BuyPoints> {
     required String purchaseId,
     required String invoiceNumber,
     bool isRetry = false,
+    bool isBackground = false,
   }) async {
     try {
-      debugPrint("=== START SEND TOPUP ===");
-      debugPrint("Token: $token");
-      debugPrint("UserID: $userId");
-      debugPrint("Points: $points");
-      debugPrint("Price: $price");
-      debugPrint("PurchaseID: $purchaseId");
-      debugPrint("Invoice: $invoiceNumber");
-
       final priceValue = _parsePrice(price);
-      debugPrint("Parsed Price: $priceValue");
-
       await TopUpPoinService().postTopUpData(
         token,
         userId,
@@ -395,87 +415,258 @@ class _BuyPointsState extends State<BuyPoints> {
         invoiceNumber,
       );
 
-      // Hapus dari pending jika ini percobaan ulang
-      if (isRetry) {
-        debugPrint("RETRYING pending transaction: $purchaseId");
-        await PendingTransactionStorage.removePendingTransaction(purchaseId);
-        debugPrint("Removed from pending: $purchaseId");
-      }
-
       debugPrint("Top-up backend success!");
-    } catch (e) {
-      debugPrint("Top-up backend error: $e");
-
-      String userMessage = 'Top Up Gagal';
-      bool willRetry = false;
-      Color bgColor = Colors.red;
-
-      if (e is TopUpException) {
-        userMessage += ', ${e.message}';
-        willRetry = e.retryable;
-        bgColor = e.retryable ? Colors.orange : Colors.red;
-      } else {
-        userMessage += ', Terjadi kesalahan tak terduga';
-      }
-
-      if (willRetry && !isRetry) {
-        userMessage += '\nPoin akan ditambahkan secara otomatis nanti';
-
-        await PendingTransactionStorage.addPendingTransaction(
-          PendingTransaction(
-            purchaseId: purchaseId,
-            points: points,
-            price: price,
-            date: DateTime.now(),
-            invoiceNumber: invoiceNumber,
-          ),
-        );
-      }
-
-      if (!isRetry) {
+      if (!isBackground) {
         Fluttertoast.showToast(
-          msg: userMessage,
+          msg: 'Top Up Berhasil!',
           toastLength: Toast.LENGTH_LONG,
           gravity: ToastGravity.BOTTOM,
-          backgroundColor: bgColor,
+          backgroundColor: Colors.green,
           textColor: Colors.white,
-          fontSize: 16.0,
-          timeInSecForIosWeb: 5,
         );
       }
+    } catch (e) {
+      debugPrint("Top-up backend error: $e");
+      if (!isRetry && !isBackground) {
+        Fluttertoast.showToast(
+          msg: 'Top Up Gagal: ${e.toString()}',
+          toastLength: Toast.LENGTH_LONG,
+          gravity: ToastGravity.BOTTOM,
+          backgroundColor: Colors.red,
+          textColor: Colors.white,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _saveCompletedPurchaseId(String purchaseId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final completedIds = prefs.getStringList('completed_purchase_ids') ?? [];
+    if (!completedIds.contains(purchaseId)) {
+      completedIds.add(purchaseId);
+      await prefs.setStringList('completed_purchase_ids', completedIds);
+      _completedBackendPurchaseIds.add(purchaseId);
     }
   }
 
   int _parsePrice(String priceStr) {
     try {
-      // Handle currency symbols and formatting
       priceStr = priceStr.replaceAll(RegExp(r'[^0-9.,]'), '');
 
-      // Handle different decimal separators
       if (priceStr.contains(',') && priceStr.contains('.')) {
-        // Format like 1.000,00 or 1,000.00
         final lastComma = priceStr.lastIndexOf(',');
         final lastDot = priceStr.lastIndexOf('.');
-
         if (lastComma > lastDot) {
-          // Comma is decimal separator (1.000,00)
           priceStr = priceStr.replaceAll('.', '').replaceAll(',', '.');
         } else {
-          // Dot is decimal separator (1,000.00)
           priceStr = priceStr.replaceAll(',', '');
         }
       } else if (priceStr.contains(',')) {
-        // Replace comma with dot for decimal
         priceStr = priceStr.replaceAll(',', '.');
       }
 
-      // Parse to double then convert to integer (cents)
       final value = double.tryParse(priceStr) ?? 0;
       return (value * 100).toInt();
     } catch (e) {
-      debugPrint("Price parsing error: $e");
       return 0;
     }
+  }
+
+  Future<void> _initiatePurchase(ProductDetails product, int points,
+      String productId, BuildContext context) async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            elevation: 10,
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.85,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                color: Colors.white,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Icon
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2F80ED).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: const Icon(
+                      Icons.shopping_cart_outlined,
+                      color: Color(0xFF2F80ED),
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Title
+                  const Text(
+                    "Konfirmasi Pembelian",
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1A1A),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Content
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8F9FA),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFFE5E7EB),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Poin:",
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 14,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                            Text(
+                              "${numberFormat.format(points)} poin",
+                              style: const TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1A1A1A),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Harga:",
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 14,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                            Text(
+                              product.price,
+                              style: const TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF2F80ED),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Action buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: const BorderSide(
+                                color: Color(0xFFE5E7EB),
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                          child: const Text(
+                            "Batal",
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2F80ED),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            "Lanjutkan",
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) {
+      setState(() => _buttonLoadingStates[productId] = false);
+      return;
+    }
+
+    // Generate invoice number
+    final invoiceNumber =
+        "INV-${DateFormat('yyyyMMdd').format(DateTime.now())}-"
+        "${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}";
+
+    // Navigate to transaction page
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TransactionStatusPage(
+          product: product,
+          points: points,
+          invoiceNumber: invoiceNumber,
+        ),
+      ),
+    ).then((_) {
+      setState(() => _buttonLoadingStates[productId] = false);
+    });
   }
 
   bool _isDescriptionMatchesPoin(String description, int poin) {
@@ -829,243 +1020,269 @@ class _BuyPointsState extends State<BuyPoints> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        backgroundColor: Colors.white,
-        title: const Text(
-          'Top Up Poin',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF1F2131),
-            fontSize: 16,
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            backgroundColor: Colors.white,
+            title: const Text(
+              'Top Up Poin',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1F2131),
+                fontSize: 16,
+              ),
+            ),
+            centerTitle: false,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.info_outline, color: Color(0xFF1F2131)),
+                onPressed: _showTopUpInfo,
+              ),
+            ],
           ),
-        ),
-        centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline, color: Color(0xFF1F2131)),
-            onPressed: _showTopUpInfo,
-          ),
-        ],
-      ),
-      backgroundColor: const Color(0XFFF5F5F5),
-      body: Stack(
-        children: [
-          if (_errorMessage != null)
-            _buildErrorWidget()
-          else
-            RefreshIndicator(
-              onRefresh: _handleRefresh,
-              color: const Color(0xFF74B11A),
-              backgroundColor: Colors.white,
-              child: ListView.builder(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                itemCount:
-                    _isRefreshing || poinList.isEmpty ? 7 : poinList.length,
-                itemBuilder: (context, index) {
-                  // Show shimmer during initial load or refresh
-                  if (_isRefreshing || poinList.isEmpty) {
-                    return _buildShimmerCard();
-                  }
+          resizeToAvoidBottomInset: false,
+          backgroundColor: const Color(0XFFF5F5F5),
+          body: Stack(
+            children: [
+              if (_errorMessage != null)
+                _buildErrorWidget()
+              else
+                RefreshIndicator(
+                  onRefresh: _handleRefresh,
+                  color: const Color(0xFF74B11A),
+                  backgroundColor: Colors.white,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 16),
+                    itemCount:
+                        _isRefreshing || poinList.isEmpty ? 7 : poinList.length,
+                    itemBuilder: (context, index) {
+                      // Show shimmer during initial load or refresh
+                      if (_isRefreshing || poinList.isEmpty) {
+                        return _buildShimmerCard();
+                      }
 
-                  final poin = poinList[index];
-                  final mainProduct = _getProduct(poin.productId);
-                  final promoProduct = _getProduct(poin.promoProductId);
-                  final displayProduct = promoProduct ?? mainProduct;
-                  final hasPromo = promoProduct != null;
+                      final poin = poinList[index];
+                      final mainProduct = _getProduct(poin.productId);
+                      final promoProduct = _getProduct(poin.promoProductId);
+                      final displayProduct = promoProduct ?? mainProduct;
+                      final hasPromo = promoProduct != null;
+                      final productId = displayProduct?.id ?? '';
 
-                  bool isConsistent = displayProduct != null &&
-                      _isDescriptionMatchesPoin(
-                          displayProduct.description, poin.poin);
+                      bool isConsistent = displayProduct != null &&
+                          _isDescriptionMatchesPoin(
+                              displayProduct.description, poin.poin);
 
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      image: const DecorationImage(
-                        image: AssetImage('assets/images/grid_topup.png'),
-                        fit: BoxFit.cover,
-                      ),
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          spreadRadius: 1,
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
+                      final isLoadingButton =
+                          _buttonLoadingStates[productId] ?? false;
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          image: const DecorationImage(
+                            image: AssetImage('assets/images/grid_topup.png'),
+                            fit: BoxFit.cover,
+                          ),
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withOpacity(0.1),
+                              spreadRadius: 1,
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 70,
-                                height: 70,
-                                decoration: BoxDecoration(
-                                  color: hasPromo
-                                      ? const Color(0x47FFD058)
-                                      : const Color(0x486CB1FF),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Center(
-                                  child: Image.asset('assets/images/poin.png',
-                                      width: 42),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (displayProduct != null) ...[
+                        child: Stack(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 70,
+                                    height: 70,
+                                    decoration: BoxDecoration(
+                                      color: hasPromo
+                                          ? const Color(0x47FFD058)
+                                          : const Color(0x486CB1FF),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Center(
+                                      child: Image.asset(
+                                          'assets/images/poin.png',
+                                          width: 42),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        if (displayProduct != null) ...[
+                                          Text(
+                                            "${numberFormat.format(int.parse(displayProduct.description))} Poin",
+                                            style: const TextStyle(
+                                              fontFamily: 'Poppins',
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF1F2131),
+                                            ),
+                                          ),
+                                          if (!isConsistent)
+                                            const SizedBox(height: 4),
+                                          if (!isConsistent)
+                                            Text(
+                                              "⚠️ Deskripsi tidak sesuai jumlah poin",
+                                              style: TextStyle(
+                                                fontFamily: 'Poppins',
+                                                fontSize: 12,
+                                                color: Colors.red[400],
+                                              ),
+                                            ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      if (hasPromo && mainProduct != null)
+                                        Text(
+                                          mainProduct.price,
+                                          style: const TextStyle(
+                                            decoration:
+                                                TextDecoration.lineThrough,
+                                            color: Color(0xFF6A6C7B),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      if (hasPromo && mainProduct != null)
+                                        const SizedBox(height: 0),
                                       Text(
-                                        "${numberFormat.format(int.parse(displayProduct.description))} Poin",
-                                        style: const TextStyle(
+                                        displayProduct?.price ?? "Loading...",
+                                        style: TextStyle(
                                           fontFamily: 'Poppins',
                                           fontSize: 16,
                                           fontWeight: FontWeight.bold,
-                                          color: Color(0xFF1F2131),
+                                          color: hasPromo
+                                              ? const Color(0xFF27AE60)
+                                              : const Color(0xFF1F2131),
                                         ),
                                       ),
-                                      if (!isConsistent)
-                                        const SizedBox(height: 4),
-                                      if (!isConsistent)
-                                        Text(
-                                          "⚠️ Deskripsi tidak sesuai jumlah poin",
-                                          style: TextStyle(
-                                            fontFamily: 'Poppins',
-                                            fontSize: 12,
-                                            color: Colors.red[400],
-                                          ),
-                                        ),
                                     ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  if (hasPromo && mainProduct != null)
-                                    Text(
-                                      mainProduct.price,
-                                      style: const TextStyle(
-                                        decoration: TextDecoration.lineThrough,
-                                        color: Color(0xFF6A6C7B),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  if (hasPromo && mainProduct != null)
-                                    const SizedBox(height: 0),
-                                  Text(
-                                    displayProduct?.price ?? "Loading...",
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: hasPromo
-                                          ? const Color(0xFF27AE60)
-                                          : const Color(0xFF1F2131),
-                                    ),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
-                        ),
-                        Positioned(
-                          left: 102,
-                          bottom: 16,
-                          child: hasPromo
-                              ? Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF27AE60)
-                                        .withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    "Special Offer",
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      color: Color(0xFF27AE60),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                )
-                              : Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    "Regular Offer",
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      color: Color(0xFF6A6C7B),
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                        ),
-                        Positioned(
-                          right: 16,
-                          bottom: 16,
-                          child: InkWell(
-                            onTap: displayProduct != null && !isLoading
-                                ? () => iApEngine.handlePurchase(
-                                      productDetails: displayProduct,
-                                      pointAmount: poin.poin,
+                            ),
+                            Positioned(
+                              left: 102,
+                              bottom: 16,
+                              child: hasPromo
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF27AE60)
+                                            .withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        "Special Offer",
+                                        style: TextStyle(
+                                          fontFamily: 'Poppins',
+                                          color: Color(0xFF27AE60),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
                                     )
-                                : null,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF2F80ED),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Text(
-                                "Top Up",
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                  : Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        "Regular Offer",
+                                        style: TextStyle(
+                                          fontFamily: 'Poppins',
+                                          color: Color(0xFF6A6C7B),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                            ),
+                            Positioned(
+                              right: 16,
+                              bottom: 16,
+                              child: InkWell(
+                                onTap: displayProduct != null &&
+                                        !isLoading &&
+                                        !isLoadingButton
+                                    ? () {
+                                        setState(() =>
+                                            _buttonLoadingStates[productId] =
+                                                true);
+                                        _initiatePurchase(displayProduct,
+                                            poin.poin, productId, context);
+                                      }
+                                    : null,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isLoadingButton
+                                        ? Colors.grey
+                                        : const Color(0xFF2F80ED),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    "Top Up",
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          if (isLoading) const LoadingPage()
-        ],
-      ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+
+        // Loading overlay yang menutupi seluruh layar
+        if (isLoading)
+          AnimatedOpacity(
+            opacity: isLoading ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 300),
+            child: const LoadingPage(),
+          ),
+      ],
     );
   }
 }
@@ -1079,31 +1296,64 @@ class IApEngine {
     return await inAppPurchase.queryProductDetails(productIds.toSet());
   }
 
+  // Fungsi untuk mendapatkan pembelian sebelumnya
+  Future<List<PurchaseDetails>> getPurchases() async {
+    if (Platform.isAndroid) {
+      final InAppPurchaseAndroidPlatformAddition androidAddition = inAppPurchase
+          .getPlatformAddition<InAppPurchaseAndroidPlatformAddition>();
+      final response = await androidAddition.queryPastPurchases();
+      return response.pastPurchases;
+    }
+    return [];
+  }
+
   Future<void> handlePurchase({
     required ProductDetails productDetails,
     required int pointAmount,
   }) async {
-    late PurchaseParam purchaseParam;
-
-    if (Platform.isAndroid) {
-      purchaseParam = GooglePlayPurchaseParam(
-        productDetails: productDetails,
-        applicationUserName: null,
-      );
-    } else {
-      purchaseParam = PurchaseParam(
-        productDetails: productDetails,
-        applicationUserName: null,
-      );
-    }
-
     try {
-      await inAppPurchase.buyConsumable(
+      // Generate invoice number immediately
+      final invoiceNumber =
+          "INV-${DateFormat('yyyyMMdd').format(DateTime.now())}-"
+          "${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}";
+
+      // Save transaction to SharedPreferences BEFORE starting payment
+      await PendingTransactionStorage.addPendingTransaction(
+        PendingTransaction(
+          purchaseId: "", // Will be updated later
+          points: pointAmount,
+          price: productDetails.price,
+          date: DateTime.now(),
+          invoiceNumber: invoiceNumber,
+        ),
+      );
+
+      // Proceed with payment
+      late PurchaseParam purchaseParam;
+      if (Platform.isAndroid) {
+        purchaseParam = GooglePlayPurchaseParam(
+          productDetails: productDetails,
+          applicationUserName: null,
+        );
+      } else {
+        purchaseParam = PurchaseParam(
+          productDetails: productDetails,
+          applicationUserName: null,
+        );
+      }
+
+      final bool paymentInitiated = await inAppPurchase.buyConsumable(
         purchaseParam: purchaseParam,
         autoConsume: true,
       );
+
+      if (!paymentInitiated) {
+        await PendingTransactionStorage.removePendingTransaction("");
+      }
     } catch (e) {
       debugPrint("Purchase error: $e");
+      await PendingTransactionStorage.removePendingTransaction("");
+      rethrow;
     }
   }
 }

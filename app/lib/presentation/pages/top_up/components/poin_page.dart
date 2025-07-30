@@ -183,72 +183,137 @@ class _PoinPageState extends State<PoinPage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (context) {
         return Container(
-          padding: const EdgeInsets.all(24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 50,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(10),
+              // Header dengan drag handle
+              Container(
+                padding: const EdgeInsets.only(top: 24, bottom: 8),
+                child: Center(
+                  child: Container(
+                    width: 50,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
-              const Center(
-                child: Text(
+
+              // Title dengan icon
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                child: const Text(
                   'Pusat Bantuan Poin',
                   style: TextStyle(
                     fontFamily: 'Poppins',
-                    fontSize: 22,
                     fontWeight: FontWeight.bold,
+                    fontSize: 18,
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
 
-              // FAQ 1: Apa itu Poin Getsayor?
-              _buildHelpItem(
-                question: 'Apa itu Poin Getsayor?',
-                answer:
-                    'Poin Getsayor adalah mata uang digital yang dapat Anda gunakan untuk berbelanja produk-produk di aplikasi Getsayor.',
-              ),
+              // Content area
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  child: Column(
+                    children: [
+                      // FAQ Items
+                      _buildModernHelpItem(
+                        icon: Icons.stars_rounded,
+                        iconColor: const Color(0xFF10B981),
+                        question: 'Apa itu Poin Getsayor?',
+                        answer:
+                            'Poin Getsayor adalah mata uang digital yang dapat Anda gunakan untuk berbelanja produk-produk di aplikasi Getsayor.',
+                      ),
 
-              // FAQ 2: Cara Mendapatkan Poin
-              _buildHelpItem(
-                question: 'Bagaimana cara mendapatkan poin?',
-                answer:
-                    'Anda bisa mendapatkan poin dengan top up menggunakan fitur pembelian dalam aplikasi (In-App Purchase) melalui Google Play.',
-              ),
+                      _buildModernHelpItem(
+                        icon: Icons.add_circle_outline,
+                        iconColor: const Color(0xFF3B82F6),
+                        question: 'Bagaimana cara mendapatkan poin?',
+                        answer:
+                            'Anda bisa mendapatkan poin dengan top up menggunakan fitur pembelian dalam aplikasi (In-App Purchase) melalui Google Play.',
+                      ),
 
-              // FAQ 3: Cara Menggunakan Poin
-              _buildHelpItem(
-                question: 'Bagaimana cara menggunakan poin?',
-                answer:
-                    'Poin dapat digunakan saat checkout atau pembelian produk dengan memilih opsi Bayar dengan "Poin". Anda akan melihat jumlah poin yang diperlukan untuk membeli produk tersebut.',
-              ),
+                      _buildModernHelpItem(
+                        icon: Icons.payment,
+                        iconColor: const Color(0xFF8B5CF6),
+                        question: 'Bagaimana cara menggunakan poin?',
+                        answer:
+                            'Poin dapat digunakan saat checkout atau pembelian produk dengan memilih opsi Bayar dengan "Poin". Anda akan melihat jumlah poin yang diperlukan untuk membeli produk tersebut.',
+                      ),
 
-              // FAQ 4: Konversi Poin
-              _buildHelpItem(
-                question: 'Berapa nilai tukar poin ke Rupiah?',
-                answer:
-                    'Nilai tukar poin dapat berubah sesuai kebijakan Getsayor. Anda dapat melihat nilai tukar terkini di bagian "Konversi Poin" pada halaman ini.',
-              ),
+                      _buildModernHelpItem(
+                        icon: Icons.sync_alt,
+                        iconColor: const Color(0xFFF59E0B),
+                        question: 'Berapa nilai tukar poin ke Rupiah?',
+                        answer:
+                            'Nilai tukar poin dapat berubah sesuai kebijakan Getsayor. Anda dapat melihat nilai tukar terkini di bagian "Konversi Poin" pada halaman ini.',
+                      ),
 
-              // FAQ 5: Riwayat Transaksi
-              _buildHelpItem(
-                question: 'Bagaimana cara melihat riwayat top up?',
-                answer:
-                    'Semua riwayat top up poin Anda dapat dilihat di bagian "Riwayat Top Up" pada halaman ini.',
+                      _buildModernHelpItem(
+                        icon: Icons.history,
+                        iconColor: const Color(0xFF06B6D4),
+                        question: 'Bagaimana cara melihat riwayat top up?',
+                        answer:
+                            'Semua riwayat top up poin Anda dapat dilihat di bagian "Riwayat Top Up" pada halaman ini.',
+                        isLast: true,
+                      ),
+
+                      // Bottom info card
+                      Container(
+                        margin: const EdgeInsets.only(top: 16),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: const Color(0xFFE2E8F0),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF4F46E5).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.info_outline,
+                                color: Color(0xFF4F46E5),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'Masih ada pertanyaan? Hubungi customer service kami untuk bantuan lebih lanjut.',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 13,
+                                  color: Color(0xFF64748B),
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -257,29 +322,73 @@ class _PoinPageState extends State<PoinPage> {
     );
   }
 
-  Widget _buildHelpItem({required String question, required String answer}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Column(
+  Widget _buildModernHelpItem({
+    required IconData icon,
+    required Color iconColor,
+    required String question,
+    required String answer,
+    bool isLast = false,
+  }) {
+    return Container(
+      margin: EdgeInsets.only(bottom: isLast ? 0 : 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            question,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontWeight: FontWeight.w600,
-              fontSize: 16,
-              color: Color(0xFF1F2131),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              icon,
+              color: iconColor,
+              size: 20,
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            answer,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 14,
-              color: Color(0xFF555555),
-              height: 1.5,
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  question,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                    color: Color(0xFF1F2937),
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  answer,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 14,
+                    color: Color(0xFF64748B),
+                    height: 1.5,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

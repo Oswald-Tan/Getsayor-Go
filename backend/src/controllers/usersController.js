@@ -3,6 +3,7 @@ import Role from "../models/role.js";
 import bcrypt from "bcrypt";
 import { Op } from "sequelize";
 import DetailsUsers from "../models/details_users.js";
+import UserPoints from "../models/userPoints.js";
 
 export const getUsers = async (req, res) => {
   const page = parseInt(req.query.page) || 0;
@@ -40,6 +41,11 @@ export const getUsers = async (req, res) => {
           as: "userRole",
           attributes: ["role_name"],
         },
+        {
+          model: UserPoints,
+          as: "userPoints",
+          attributes: ["points"],
+        }
       ],
       attributes: ["id", "email", "role_id"],
       order: [["userDetails", "fullname", "ASC"]],
@@ -53,6 +59,7 @@ export const getUsers = async (req, res) => {
       fullname: user.userDetails ? user.userDetails.fullname : null,
       email: user.email,
       role: user.userRole.role_name,
+      points: user.userPoints ? user.userPoints.points : 0
     }));
 
     res.status(200).json({
@@ -241,7 +248,100 @@ export const getUserDetails = async (req, res) => {
   }
 };
 
+export const getUserPoints = async (req, res) => {
+  const { id } = req.params;
 
+  try {
+    // Cari detail pengguna dengan relasi yang lengkap
+    const userPoints = await UserPoints.findOne({
+      where: { userId: id },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["email"],
+          include: [{
+            model: DetailsUsers,
+            as: "userDetails",
+            attributes: ["fullname"]
+          }]
+        }
+      ],
+    });
+
+    // Jika tidak ada point pengguna
+    if (!userPoints) {
+      const user = await User.findOne({
+        where: { id },
+        include: [{
+          model: DetailsUsers,
+          as: "userDetails",
+          attributes: ["fullname"]
+        }]
+      });
+
+      return res.status(200).json({
+        points: 0, // Berikan nilai default
+        email: user.email,
+        id: user.id,
+        fullname: user.userDetails?.fullname || "-"
+      });
+    }
+
+    // Kirim response dengan data yang benar
+    res.status(200).json({
+      points: userPoints.points,
+      email: userPoints.user.email, // Perbaikan di sini
+      id: userPoints.userId,
+      fullname: userPoints.user.userDetails?.fullname || "-" // Ambil dari relasi
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateUserPoints = async (req, res) => {
+  const { userId } = req.params;
+  const { points } = req.body;
+
+  try {
+    // Validasi input
+    if (points === undefined || points === null) {
+      return res.status(400).json({ message: "Points is required" });
+    }
+    
+    // Cek apakah user ada
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Cari atau buat record poin
+    const [userPoints, created] = await UserPoints.findOrCreate({
+      where: { userId },
+      defaults: { points }
+    });
+
+    // Jika sudah ada, update poinnya
+    if (!created) {
+      userPoints.points = points;
+      await userPoints.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Points updated successfully",
+      data: {
+        userId: userPoints.userId,
+        points: userPoints.points
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: error.message });
+  }
+};
 
 export const getUserById = async (req, res) => {
   try {

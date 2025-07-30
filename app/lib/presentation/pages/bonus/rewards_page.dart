@@ -703,124 +703,348 @@ class _RewardsPageState extends State<RewardsPage>
   void _showInfoBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      backgroundColor: Colors.white,
-      isScrollControlled: true, // Tambahkan ini
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          child: SingleChildScrollView(
-            // Bungkus dengan SingleChildScrollView
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min, // Tetap gunakan min
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 50,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header dengan drag handle
+              Container(
+                padding: const EdgeInsets.only(top: 24, bottom: 8),
+                child: Container(
+                  width: 50,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  const SizedBox(height: 20),
-                  // Aturan Dasar
-                  const Text(
-                    '📝 Aturan Dasar Reward',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w700, // Gunakan bold
-                      fontSize: 18,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildRewardStep(
-                      '1️⃣ Minimal transaksi: 20.000 poin/Rp200.000'),
-                  _buildRewardStep('2️⃣ Level 1 dapat 10% dari transaksi'),
-                  _buildRewardStep('3️⃣ Level 2 dapat 5% dari transaksi'),
-                  _buildRewardStep(
-                      '4️⃣ Bonus berlaku 30 hari setelah diberikan'),
-                  _buildRewardStep(
-                      '5️⃣ Akan di transfer ke rekening Anda setiap bulan'),
-
-                  const SizedBox(height: 24),
-                  const Text(
-                    '🧮 Contoh Perhitungan Nyata',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w700, // Gunakan bold
-                      fontSize: 18,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildExampleBonus('💡 Contoh 1:',
-                      'Anda mengajak User 1 (Level 1) yang bertransaksi Rp200.000 → Bonus Anda: 10% × Rp200.000 = Rp20.000'),
-                  _buildExampleBonus('💡 Contoh 2:',
-                      'User 1 mengajak User 2 (Level 2) yang bertransaksi Rp200.000 → Bonus Anda: 5% × Rp200.000 = Rp10.000'),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '🚀 Semakin banyak Anda mengajak teman, semakin besar bonus yang bisa Anda dapatkan! 🎁🔥',
-                    style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: Colors.black),
-                  ),
-                  const SizedBox(height: 20),
-                  Center(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF74B11A),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 32, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 5,
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text(
-                        'Tutup',
-                        style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 14,
-                            color: Colors.white),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+
+              const SizedBox(height: 16),
+
+              // Title dengan gradient background
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF74B11A), Color(0xFF5A8D15)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Column(
+                  children: [
+                    Text(
+                      '🎁 Reward Program',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 24,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'Ajak teman dan dapatkan bonus hingga 10%!',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Content area
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Aturan Dasar Section
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: const Color(0xFFE2E8F0),
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF3B82F6)
+                                        .withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.rule_outlined,
+                                    color: Color(0xFF3B82F6),
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Aturan Dasar Reward',
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                    color: Color(0xFF1F2937),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _buildModernRewardStep(
+                              icon: Icons.payment,
+                              iconColor: const Color(0xFF10B981),
+                              text: 'Minimal transaksi: 20.000 poin/Rp200.000',
+                            ),
+                            _buildModernRewardStep(
+                              icon: Icons.stars,
+                              iconColor: const Color(0xFFF59E0B),
+                              text: 'Level 1 dapat 10% dari transaksi',
+                            ),
+                            _buildModernRewardStep(
+                              icon: Icons.star_half,
+                              iconColor: const Color(0xFF8B5CF6),
+                              text: 'Level 2 dapat 5% dari transaksi',
+                            ),
+                            _buildModernRewardStep(
+                              icon: Icons.schedule,
+                              iconColor: const Color(0xFF06B6D4),
+                              text: 'Bonus berlaku 30 hari setelah diberikan',
+                            ),
+                            _buildModernRewardStep(
+                              icon: Icons.account_balance,
+                              iconColor: const Color(0xFFEF4444),
+                              text:
+                                  'Akan di transfer ke rekening Anda setiap bulan',
+                              isLast: true,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 24),
+
+                      // Contoh Perhitungan Section
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEFDF8),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: const Color(0xFFFEF3C7),
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF59E0B)
+                                        .withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.calculate_outlined,
+                                    color: Color(0xFFF59E0B),
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Contoh Perhitungan',
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                    color: Color(0xFF1F2937),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _buildModernExampleBonus(
+                              title: 'Contoh 1: Level 1 Referral',
+                              description:
+                                  'Anda mengajak User 1 (Level 1) yang bertransaksi Rp200.000',
+                              calculation: '10% × Rp200.000 = Rp20.000',
+                              color: const Color(0xFF10B981),
+                            ),
+                            _buildModernExampleBonus(
+                              title: 'Contoh 2: Level 2 Referral',
+                              description:
+                                  'User 1 mengajak User 2 (Level 2) yang bertransaksi Rp200.000',
+                              calculation: '5% × Rp200.000 = Rp10.000',
+                              color: const Color(0xFF3B82F6),
+                              isLast: true,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // Motivational Card
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF74B11A), Color(0xFF5A8D15)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF74B11A).withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Column(
+                          children: [
+                            Icon(
+                              Icons.rocket_launch,
+                              color: Colors.white,
+                              size: 32,
+                            ),
+                            SizedBox(height: 12),
+                            Text(
+                              'Mulai Sekarang!',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Semakin banyak Anda mengajak teman, semakin besar bonus yang bisa Anda dapatkan!',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 14,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 24),
+
+                      // Close Button
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF74B11A),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text(
+                            'Mengerti, Tutup',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildRewardStep(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+  Widget _buildModernRewardStep({
+    required IconData icon,
+    required Color iconColor,
+    required String text,
+    bool isLast = false,
+  }) {
+    return Container(
+      margin: EdgeInsets.only(bottom: isLast ? 0 : 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(width: 8),
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon,
+              color: iconColor,
+              size: 16,
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               text,
               style: const TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 14,
-                color: Color(0xFF4B5563),
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF374151),
+                height: 1.4,
               ),
             ),
           ),
@@ -829,28 +1053,81 @@ class _RewardsPageState extends State<RewardsPage>
     );
   }
 
-  Widget _buildExampleBonus(String title, String description) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+  Widget _buildModernExampleBonus({
+    required String title,
+    required String description,
+    required String calculation,
+    required Color color,
+    bool isLast = false,
+  }) {
+    return Container(
+      margin: EdgeInsets.only(bottom: isLast ? 0 : 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-              color: Color(0xFF1F2937),
-            ),
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.lightbulb_outline,
+                  color: color,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             description,
             style: const TextStyle(
               fontFamily: 'Poppins',
               fontSize: 13,
-              color: Color(0xFF4B5563),
+              color: Color(0xFF6B7280),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'Bonus Anda: $calculation',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
             ),
           ),
         ],

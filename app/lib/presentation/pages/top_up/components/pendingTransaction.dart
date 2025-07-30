@@ -42,15 +42,12 @@ class PendingTransactionStorage {
 
   static Future<List<PendingTransaction>> getPendingTransactions() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? data = prefs.getString(_key);
-    if (data == null) return [];
-
-    try {
-      final List<dynamic> jsonList = json.decode(data);
-      return jsonList.map((e) => PendingTransaction.fromMap(e)).toList();
-    } catch (e) {
-      return [];
+    final jsonString = prefs.getString(_key);
+    if (jsonString != null) {
+      final List<dynamic> jsonList = json.decode(jsonString);
+      return jsonList.map((item) => PendingTransaction.fromMap(item)).toList();
     }
+    return [];
   }
 
   static Future<void> savePendingTransactions(
@@ -63,8 +60,12 @@ class PendingTransactionStorage {
   static Future<void> addPendingTransaction(
       PendingTransaction transaction) async {
     final List<PendingTransaction> current = await getPendingTransactions();
-    current.add(transaction);
-    await savePendingTransactions(current);
+
+    // Hindari duplikasi
+    if (!current.any((t) => t.purchaseId == transaction.purchaseId)) {
+      current.add(transaction);
+      await savePendingTransactions(current);
+    }
   }
 
   static Future<void> removePendingTransaction(String purchaseId) async {

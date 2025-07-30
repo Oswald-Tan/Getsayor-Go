@@ -10,6 +10,8 @@ import {
   createUser,
   updateUser,
   deleteUser,
+  getUserPoints,
+  updateUserPoints,
 } from "../../controllers/usersController.js";
 import { verifyUser, adminOnly } from "../../middleware/authUser.js";
 
@@ -18,10 +20,12 @@ const router = express.Router();
 router.get("/users", verifyUser, adminOnly, getUsers);
 router.get("/users-approve", verifyUser, adminOnly, getUserApprove);
 router.get("/users/:id/details", verifyUser, adminOnly, getUserDetails);
+router.get("/users/:id/points", verifyUser, adminOnly, getUserPoints);
 router.get("/user/:id", verifyUser, adminOnly, getUserById);
 router.get("/total-users", verifyUser, getTotalUsers);
 router.put("/approve", verifyUser, adminOnly, approveUser);
 router.put("/approve-users", verifyUser, adminOnly, approveUsers);
+router.put("/users/:userId/points", verifyUser, adminOnly, updateUserPoints);
 router.post("/user", verifyUser, adminOnly, createUser);
 router.patch("/user/:id", verifyUser, adminOnly, updateUser);
 

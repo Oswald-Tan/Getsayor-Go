@@ -1,5 +1,10 @@
 backend/node_modules
+backend/src/config/push-notification-key.json
+backend-go/config/firebase-service-account.json
 backend/.env
+backend-go/.env
 admin/node_modules
+admin-go/node_modules
 admin/.env
+admin-go/.env
 .vscode

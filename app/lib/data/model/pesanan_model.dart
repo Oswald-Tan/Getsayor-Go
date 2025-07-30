@@ -1,5 +1,6 @@
 class PesananModel {
   final String orderId;
+  final String invoiceNumber;
   final int totalBayar;
   final String status;
   final int? hargaRp;
@@ -11,6 +12,7 @@ class PesananModel {
 
   PesananModel({
     required this.orderId,
+    required this.invoiceNumber,
     required this.totalBayar,
     required this.status,
     this.hargaRp,
@@ -24,6 +26,7 @@ class PesananModel {
   factory PesananModel.fromJson(Map<String, dynamic> json) {
     return PesananModel(
       orderId: json['orderId'],
+      invoiceNumber: json['invoiceNumber'],
       totalBayar: json['totalBayar'],
       status: json['status'],
       hargaRp: json['hargaRp'],

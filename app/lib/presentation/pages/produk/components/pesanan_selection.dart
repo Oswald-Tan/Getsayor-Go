@@ -768,7 +768,8 @@ class _PaymentSelectionState extends State<PaymentSelection> {
                                         OrderConfirmationPage(
                                   namaProduk: widget.nama,
                                   jumlah: '${widget.jumlah}',
-                                  satuan: widget.satuan,
+                                  satuan:
+                                      '${widget.satuan == 'Gram' ? 'gr' : widget.satuan == 'Kilogram' ? 'kg' : widget.satuan == 'Biji' ? 'biji' : widget.satuan}',
                                   beratNormal: widget.beratNormal,
                                   hargaProduk: '${widget.hargaPoin}',
                                   ongkir: '$ongkir',
@@ -798,7 +799,8 @@ class _PaymentSelectionState extends State<PaymentSelection> {
                                           OrderConfirmationPage(
                                     namaProduk: widget.nama,
                                     jumlah: '${widget.jumlah}',
-                                    satuan: widget.satuan,
+                                    satuan:
+                                        '${widget.satuan == 'Gram' ? 'gr' : widget.satuan == 'Kilogram' ? 'kg' : widget.satuan == 'Biji' ? 'biji' : widget.satuan}',
                                     beratNormal: widget.beratNormal,
                                     hargaProduk: '${widget.hargaPoin}',
                                     ongkir: '$ongkir',

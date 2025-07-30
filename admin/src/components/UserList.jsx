@@ -4,7 +4,7 @@ import { API_URL } from "../config";
 import Swal from "sweetalert2";
 import Button from "./ui/Button";
 import ButtonAction from "./ui/ButtonAction";
-import { RiApps2AddFill } from "react-icons/ri";
+import { RiApps2AddFill, RiCoinFill } from "react-icons/ri";
 import {
   MdEditSquare,
   MdDelete,
@@ -243,6 +243,11 @@ const UserList = () => {
                           to={`/users/${user.id}/details`}
                           icon={<BiSolidUserDetail />}
                           className={"bg-blue-600 hover:bg-blue-700"}
+                        />
+                         <ButtonAction
+                          to={`/users/${user.id}/points`}
+                          icon={<RiCoinFill />}
+                          className={"bg-yellow-600 hover:bg-yellow-700"}
                         />
                         <ButtonAction
                           to={`/users/${user.id}/stats`}

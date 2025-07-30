@@ -14,8 +14,6 @@ export const getTopUp = async (req, res) => {
   const offset = limit * page;
 
   try {
-   
-
     const totalTopUp = await TopUpPoin.count({
       include: [
         {

@@ -317,7 +317,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                               SizedBox(height: 10),
                               Text(
-                                'Segera daftar dan rasakan kemudahan berbelanja\n dengan aplikasi Carisayor!',
+                                'Segera daftar dan rasakan kemudahan berbelanja\n dengan aplikasi Get Sayor!',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontFamily: 'Poppins',

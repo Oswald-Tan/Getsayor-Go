@@ -50,7 +50,7 @@ class OrderDetailPage extends StatelessWidget {
             totalBayarSemua: pesanan.hargaRp != null
                 ? formatRupiah(pesanan.totalBayar)
                 : pesanan.totalBayar.toString(),
-            invoiceNumber: pesanan.orderId,
+            invoiceNumber: pesanan.invoiceNumber,
             orderDate: pesanan.createdAt,
           ),
         ),
@@ -79,7 +79,7 @@ class OrderDetailPage extends StatelessWidget {
             totalBayar: pesanan.hargaRp != null
                 ? formatRupiah(pesanan.totalBayar)
                 : pesanan.totalBayar.toString(),
-            invoiceNumber: pesanan.orderId,
+            invoiceNumber: pesanan.invoiceNumber,
             orderDate: pesanan.createdAt,
           ),
         ),

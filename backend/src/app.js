@@ -54,6 +54,7 @@ import Count from "./routes/web/countRoute.js";
 import ProvincesCities from "./routes/web/cityProvinceRoute.js";
 import ShippingRate from "./routes/web/shippingRatesRoute.js";
 import TopupFromWeb from "./routes/web/topupFromWebRoute.js";
+import UserPoints from "./routes/web/usersPointsRoute.js";
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -169,6 +170,7 @@ app.use("/api/v1/count", sessionMiddleware, Count);
 app.use("/api/v1/provinces-cities", sessionMiddleware, ProvincesCities);
 app.use("/api/v1/shipping-rates", sessionMiddleware, ShippingRate);
 app.use("/api/v1/topup-from-web", sessionMiddleware, TopupFromWeb);
+app.use("/api/v1/user-points", sessionMiddleware, UserPoints);
 
 //jadwal cron job untuk memeriksa bonus yang sudah expired
 cron.schedule("0 0 * * *", async () => {

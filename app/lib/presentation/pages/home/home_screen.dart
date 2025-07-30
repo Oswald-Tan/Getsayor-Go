@@ -3,11 +3,9 @@ import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:getsayor/presentation/pages/home/components/card_saldo_poin.dart';
-// import 'package:getsayor/presentation/pages/home_new/components/promo_card.dart';
 import 'package:getsayor/presentation/pages/home/components/shimmer_discount_topup.dart';
 import 'package:getsayor/presentation/pages/produk/components/cart.dart';
 import 'package:getsayor/presentation/pages/top_up/components/buy_points.dart';
-// import 'package:getsayor/presentation/pages/top_up/components/poin_page.dart';
 import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 import 'package:flutter/material.dart';
 import 'package:getsayor/core/api/config.dart';
@@ -405,7 +403,7 @@ class _HomeScreenState extends State<HomeScreen> {
             left: 16,
             right: 16,
             top: 20,
-            bottom: 20,
+            bottom: 90,
           ),
           sliver: SliverGrid(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -621,7 +619,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             delegate: SliverChildBuilderDelegate(
               (context, index) => const ShimmerProdukCard(),
-              childCount: 2, // Menampilkan 2 shimmer (satu baris)
+              childCount: 4, // Menampilkan 2 shimmer (satu baris)
             ),
           ),
         ),
@@ -926,7 +924,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       left: 16,
                       right: 16,
                       top: 20,
-                      bottom: 20,
+                      bottom: 90,
                     ),
                     sliver: SliverGrid(
                       gridDelegate:

@@ -17,7 +17,7 @@ const FormEditUser = () => {
   useEffect(() => {
     const getUserById = async () => {
       try {
-        const res = await axios.get(`${API_URL}/users/user/${id}`);
+        const res = await axios.get(`${API_URL}/users/user${id}`);
         setFullname(res.data.fullname);
         setEmail(res.data.email);
         setRole(res.data.role);

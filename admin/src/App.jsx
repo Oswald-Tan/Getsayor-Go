@@ -35,6 +35,7 @@ import NotFound from "./components/404";
 import ShippingRates from "./pages/ShippingRates";
 import EditShippingRates from "./pages/EditShippingRates";
 import AddShippingRates from "./pages/AddShippingRates";
+import UserPoints from "./components/UserPoints";
 
 function App() {
   return (
@@ -52,7 +53,9 @@ function App() {
           <Route path="/users/add" element={<AddUser />} exact />
           <Route path="/users/edit/:id" element={<EditUser />} exact />
           <Route path="/users/:id/details" element={<UserDetail />} exact />
+          <Route path="/users/:id/points" element={<UserPoints />} exact />
           <Route path="/users/:id/stats" element={<UserStats />} exact />
+
 
           <Route path="/products" element={<Products />} exact />
           <Route path="/products/add" element={<AddProduct />} exact />
