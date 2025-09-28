@@ -113,7 +113,6 @@ const About = () => {
       className="relative py-20 md:py-28 lg:py-36 min-h-screen flex items-center overflow-hidden"
     >
       {/* Background Elements */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-gray-50"></div>
       <div className="absolute top-0 left-0 w-full h-full">
         <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-br from-green-200/30 to-blue-200/30 rounded-full blur-3xl"></div>
         <div className="absolute bottom-20 right-10 w-80 h-80 bg-gradient-to-br from-purple-200/30 to-pink-200/30 rounded-full blur-3xl"></div>
@@ -268,19 +267,12 @@ const About = () => {
                     <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
                   </div>
                 </div>
-
-                {/* Decorative Elements */}
-                <div className="absolute -top-4 -right-4 w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-400 rounded-full opacity-20 animate-pulse"></div>
-                <div className="absolute -bottom-4 -left-4 w-12 h-12 bg-gradient-to-br from-green-400 to-blue-400 rounded-full opacity-20 animate-bounce"></div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Floating Elements */}
-      <div className="absolute top-1/4 right-10 w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full opacity-20 animate-pulse"></div>
-      <div className="absolute bottom-1/4 left-10 w-6 h-6 bg-gradient-to-br from-blue-400 to-cyan-400 rounded-full opacity-20 animate-bounce"></div>
     </section>
   );
 };

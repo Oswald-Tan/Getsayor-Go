@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import Phone from "../assets/Phone.webp";
 import Selada from "../assets/Selada.webp";
+import GP from "../assets/google-play.webp";
 import throttle from "lodash.throttle";
 import AOS from "aos";
 
 const Download = () => {
   const [rotation, setRotation] = useState(0);
-  const [isHovered, setIsHovered] = useState(false);
   const prevScrollY = useRef(0);
   const totalRotation = useRef(0);
   const sectionRef = useRef(null);
@@ -119,25 +119,13 @@ const Download = () => {
               {/* CTA Buttons */}
               <div className="flex flex-col sm:flex-row gap-4 mt-8 w-full max-w-[500px]">
                 <a
-                  href="#"
+                  href="https://play.google.com/store/apps/details?id=com.getsayor.app&pcampaignid=web_share"
                   className="flex-1"
                   data-aos="fade-up"
                   data-aos-delay="200"
                 >
-                  <button
-                    className="group w-full font-bold text-base bg-gradient-to-r from-yellow-400 to-orange-400 text-white px-8 py-4 rounded-2xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-300 relative overflow-hidden"
-                    onMouseEnter={() => setIsHovered(true)}
-                    onMouseLeave={() => setIsHovered(false)}
-                  >
-                    <span className="flex items-center justify-center space-x-2">
-                      <span>Download Now</span>
-                    </span>
-                  </button>
+                  <img src={GP} alt="Google Play" className="md:w-[210px] w-[190px]" />
                 </a>
-
-                <button className="flex-1 border-2 border-gray-300 text-gray-700 font-semibold rounded-2xl hover:border-green-400 hover:text-green-600 hover:shadow-lg transition-all duration-300 py-4">
-                  View Features
-                </button>
               </div>
 
               {/* Stats */}
@@ -169,9 +157,7 @@ const Download = () => {
 
                 {/* Phone container */}
                 <div
-                  className={`relative bg-white/10 backdrop-blur-sm rounded-3xl p-8  transition-all duration-500 ${
-                    isHovered ? "scale-105" : "scale-100"
-                  }`}
+                  className={`relative bg-white/10 backdrop-blur-sm rounded-3xl p-8  transition-all duration-500`}
                 >
                   <img
                     src={Phone}
@@ -181,42 +167,6 @@ const Download = () => {
                       filter: "drop-shadow(0 20px 40px rgba(0,0,0,0.15))",
                     }}
                   />
-
-                  {/* Floating elements */}
-                  <div className="absolute -top-4 -right-4 w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-full flex items-center justify-center shadow-lg animate-bounce">
-                    <span className="text-white font-bold text-lg">📱</span>
-                  </div>
-
-                  <div className="absolute -bottom-4 -left-4 w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-400 rounded-full flex items-center justify-center shadow-lg animate-pulse">
-                    <span className="text-white font-bold text-xl">🛒</span>
-                  </div>
-                </div>
-
-                {/* Additional floating badges */}
-                <div className="absolute top-1/4 -left-6 bg-white rounded-2xl p-3 shadow-xl border border-gray-100 animate-pulse">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs">✓</span>
-                    </div>
-                    <div>
-                      <div className="font-bold text-gray-900 text-sm">
-                        Fast
-                      </div>
-                      <div className="text-gray-600 text-xs">Delivery</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="absolute bottom-1/4 -right-6 bg-white rounded-2xl p-3 shadow-xl border border-gray-100 animate-pulse delay-1000">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs">%</span>
-                    </div>
-                    <div>
-                      <div className="font-bold text-gray-900 text-sm">50%</div>
-                      <div className="text-gray-600 text-xs">Discount</div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>

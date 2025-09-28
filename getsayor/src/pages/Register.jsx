@@ -125,7 +125,7 @@ const Register = () => {
       }
 
       // Make API call
-      await axios.post(`${API_URL}/auth/register`, payload, {
+      await axios.post(`${API_URL}/auth-app/register`, payload, {
         headers: {
           "Content-Type": "application/json",
         },

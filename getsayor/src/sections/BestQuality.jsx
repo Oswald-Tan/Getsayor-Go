@@ -87,9 +87,6 @@ const BestQuality = () => {
                     className="w-full max-w-[410px] mx-auto relative z-10"
                   />
 
-                  {/* Floating Elements */}
-                  <div className="absolute -top-4 -left-4 w-8 h-8 bg-gradient-to-br from-green-400 to-emerald-400 rounded-full animate-bounce"></div>
-                  <div className="absolute -bottom-4 -right-4 w-6 h-6 bg-gradient-to-br from-yellow-400 to-orange-400 rounded-full animate-pulse"></div>
                 </div>
 
                 {/* Stats Cards */}
@@ -250,9 +247,7 @@ const BestQuality = () => {
         </div>
       </div>
 
-      {/* Additional Floating Elements */}
-      <div className="absolute bottom-20 left-10 w-4 h-4 bg-gradient-to-br from-green-400 to-emerald-400 rounded-full opacity-30 animate-bounce delay-500"></div>
-      <div className="absolute top-20 right-20 w-6 h-6 bg-gradient-to-br from-yellow-400 to-orange-400 rounded-full opacity-30 animate-pulse delay-1000"></div>
+     
     </section>
   );
 };
