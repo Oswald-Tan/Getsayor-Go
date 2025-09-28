@@ -1,0 +1,13 @@
+class OtpResponse {
+  final String message;
+  final bool success;
+
+  OtpResponse({required this.message, required this.success});
+
+  factory OtpResponse.fromJson(Map<String, dynamic> json) {
+    return OtpResponse(
+      message: json['message'] ?? 'Terjadi kesalahan',
+      success: json['success'] ?? false,
+    );
+  }
+}
