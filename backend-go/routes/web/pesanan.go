@@ -13,9 +13,10 @@ func SetupPesananRoutes(rg *gin.RouterGroup, db *gorm.DB) {
 	{
 		orderController := web.NewOrderController(db)
 
-		orderGroup.GET("", middleware.VerifyUser, middleware.AdminOnly, orderController.GetPesanan)
-		orderGroup.GET("/:id", middleware.VerifyUser, middleware.AdminOnly, orderController.GetPesananByID)
-		orderGroup.PUT("/:id", middleware.VerifyUser, middleware.AdminOnly, orderController.UpdatePesananStatus)
-		orderGroup.DELETE("/:id", middleware.VerifyUser, middleware.AdminOnly, orderController.DeletePesanan)
+		orderGroup.GET("", middleware.VerifyUser, orderController.GetPesanan)
+		orderGroup.GET("/:id", middleware.VerifyUser, orderController.GetPesananByID)
+		orderGroup.GET("/status/:id", middleware.VerifyUser, orderController.GetPesananStatusByID)
+		orderGroup.PUT("/:id", middleware.VerifyUser, orderController.UpdatePesananStatus)
+		orderGroup.DELETE("/:id", middleware.VerifyUser, orderController.DeletePesanan)
 	}
 }

@@ -103,7 +103,10 @@ func (ctrl *OrderController) GetPesananByUser(c *gin.Context) {
 	userID := c.Param("userId")
 
 	var pesanans []models.Pesanan
-	err := ctrl.DB.Preload("OrderItems.Product").
+	err := ctrl.DB.
+		Preload("OrderItems").
+		Preload("OrderItems.ProductItem").
+		Preload("OrderItems.ProductItem.Product").
 		Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Find(&pesanans).Error
@@ -113,9 +116,83 @@ func (ctrl *OrderController) GetPesananByUser(c *gin.Context) {
 		return
 	}
 
+	// Buat struktur respons khusus dengan tambahan image produk
+	type OrderItemResponse struct {
+		ID         uint   `json:"id"`
+		NamaProduk string `json:"namaProduk"`
+		Harga      int    `json:"harga"`
+		Jumlah     int    `json:"jumlah"`
+		Berat      int    `json:"berat"`
+		Satuan     string `json:"satuan"`
+		TotalHarga int    `json:"totalHarga"`
+		CreatedAt  string `json:"createdAt"`
+		UpdatedAt  string `json:"UpdatedAt"`
+		Image      string `json:"image"` // Tambahkan field image
+	}
+
+	type PesananResponse struct {
+		ID               uint                `json:"id"`
+		OrderId          string              `json:"orderId"`
+		InvoiceNumber    string              `json:"invoiceNumber"`
+		MetodePembayaran string              `json:"metodePembayaran"`
+		HargaRp          int                 `json:"hargaRp"`
+		Ongkir           int                 `json:"ongkir"`
+		TotalBayar       int                 `json:"totalBayar"`
+		PaymentStatus    string              `json:"paymentStatus"`
+		Status           string              `json:"status"`
+		CreatedAt        string              `json:"createdAt"`
+		UpdatedAt        string              `json:"updatedAt"`
+		OrderItems       []OrderItemResponse `json:"orderItems"`
+	}
+
+	// Map data ke respons
+	response := make([]PesananResponse, len(pesanans))
+	for i, p := range pesanans {
+		items := make([]OrderItemResponse, len(p.OrderItems))
+		for j, item := range p.OrderItems {
+			image := ""
+			// Debugging
+			if item.ProductItem == nil {
+				log.Println("ProductItem is NIL for order item:", item.ID)
+			} else if item.ProductItem.Product == nil {
+				log.Println("Product is NIL for product item:", item.ProductItem.ID)
+			} else {
+				image = item.ProductItem.Product.Image
+			}
+
+			items[j] = OrderItemResponse{
+				ID:         item.ID,
+				NamaProduk: item.NamaProduk,
+				Harga:      item.Harga,
+				Jumlah:     item.Jumlah,
+				Berat:      item.Berat,
+				Satuan:     item.Satuan,
+				TotalHarga: item.TotalHarga,
+				CreatedAt:  item.CreatedAt.Format(time.RFC3339),
+				UpdatedAt:  item.UpdatedAt.Format(time.RFC3339),
+				Image:      image, // Tambahkan image ke respons
+			}
+		}
+
+		response[i] = PesananResponse{
+			ID:               p.ID,
+			OrderId:          p.OrderId,
+			InvoiceNumber:    p.InvoiceNumber,
+			MetodePembayaran: p.MetodePembayaran,
+			HargaRp:          p.HargaRp,
+			Ongkir:           p.Ongkir,
+			TotalBayar:       p.TotalBayar,
+			PaymentStatus:    string(p.PaymentStatus),
+			Status:           string(p.Status),
+			CreatedAt:        p.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:        p.UpdatedAt.Format(time.RFC3339),
+			OrderItems:       items,
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Orders retrieved successfully",
-		"data":    pesanans,
+		"data":    response,
 	})
 }
 
@@ -188,7 +265,7 @@ func (ctrl *OrderController) BuatPesananCOD(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("Bad request: %v", req) // LOG REQUEST
+		log.Printf("Bad request: %v", req)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"message": "Invalid request format",
 			"details": err.Error(),
@@ -230,7 +307,7 @@ func (ctrl *OrderController) BuatPesananCOD(c *gin.Context) {
 	}
 
 	// Generate order ID
-	uniqueID := strings.ToUpper(strings.Replace(uuid.New().String(), "-", "", -1)[:8])
+	uniqueID := strings.ToUpper(strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
 	orderID := "GS" + uniqueID
 
 	// Create order
@@ -257,14 +334,14 @@ func (ctrl *OrderController) BuatPesananCOD(c *gin.Context) {
 	for _, item := range req.Items {
 		// Create order item
 		orderItem := models.OrderItem{
-			PesananID:  pesanan.ID,
-			ProductID:  item.ProductID,
-			NamaProduk: item.NamaProduk,
-			Harga:      int(math.Round(item.Harga)),
-			Jumlah:     item.Jumlah,
-			Berat:      int(math.Round(item.Berat)),
-			Satuan:     item.Satuan,
-			TotalHarga: int(math.Round(item.TotalHarga)),
+			PesananID:     pesanan.ID,
+			ProductItemID: item.ProductID,
+			NamaProduk:    item.NamaProduk,
+			Harga:         int(math.Round(item.Harga)),
+			Jumlah:        item.Jumlah,
+			Berat:         int(math.Round(item.Berat)),
+			Satuan:        item.Satuan,
+			TotalHarga:    int(math.Round(item.TotalHarga)),
 		}
 
 		if err := tx.Create(&orderItem).Error; err != nil {
@@ -273,38 +350,40 @@ func (ctrl *OrderController) BuatPesananCOD(c *gin.Context) {
 			return
 		}
 
-		// Update product stock
-		var product models.Product
-		if err := tx.First(&product, item.ProductID).Error; err != nil {
+		// Update stok produk
+		var productItem models.ProductItem
+		if err := tx.Where("id = ?", item.ProductID).First(&productItem).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusNotFound, gin.H{"message": fmt.Sprintf("Product %d not found", item.ProductID)})
-			return
-		}
-
-		if product.Stok < item.Jumlah {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("Insufficient stock for %s. Available: %d", product.NameProduk, product.Stok),
+			c.JSON(http.StatusNotFound, gin.H{
+				"message": fmt.Sprintf("Product item with ID %d not found", item.ProductID),
 			})
 			return
 		}
 
-		product.Stok -= item.Jumlah
-		if err := tx.Save(&product).Error; err != nil {
+		if productItem.Stok < item.Jumlah {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update product stock"})
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Insufficient stock for %s. Available: %d", item.NamaProduk, productItem.Stok),
+			})
+			return
+		}
+
+		productItem.Stok -= item.Jumlah
+		if err := tx.Save(&productItem).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update product item stock"})
 			return
 		}
 	}
 
 	// Handle affiliate bonus
 	if req.TotalBayar >= 200000 {
-		currentUser := user
+		referrerID := user.ReferredBy
 		bonusLevel := 1
-		maxBonusBase := 200000.0
 
-		for bonusLevel <= 2 {
-			if currentUser.ReferredBy == nil {
+		for bonusLevel <= 2 && referrerID != nil {
+			var referrer models.User
+			if err := tx.First(&referrer, *referrerID).Error; err != nil {
 				break
 			}
 
@@ -316,16 +395,17 @@ func (ctrl *OrderController) BuatPesananCOD(c *gin.Context) {
 				bonusPercentage = 0.05
 			}
 
-			BonusAmount := maxBonusBase * bonusPercentage
+			BonusAmount := 200000 * bonusPercentage // Base tetap 200k
 
 			bonus := models.AfiliasiBonus{
-				UserId:          *currentUser.ReferredBy,
+				UserId:          *referrerID,
 				ReferralUserId:  req.UserID,
 				PesananId:       pesanan.ID,
 				BonusAmount:     BonusAmount,
 				BonusLevel:      bonusLevel,
 				ExpiryDate:      time.Now().AddDate(0, 1, 0),
 				BonusReceivedAt: time.Now(),
+				Status:          "pending", // Pastikan status diset
 			}
 
 			if err := tx.Create(&bonus).Error; err != nil {
@@ -334,10 +414,8 @@ func (ctrl *OrderController) BuatPesananCOD(c *gin.Context) {
 				return
 			}
 
-			// Move to next level
-			if err := tx.First(&currentUser, *currentUser.ReferredBy).Error; err != nil {
-				break
-			}
+			// Pindah ke level berikutnya (referrer dari referrer saat ini)
+			referrerID = referrer.ReferredBy
 			bonusLevel++
 		}
 	}
@@ -452,7 +530,7 @@ func (ctrl *OrderController) BuatPesananCODCart(c *gin.Context) {
 	}
 
 	// Generate order ID
-	uniqueID := strings.ToUpper(strings.Replace(uuid.New().String(), "-", "", -1)[:8])
+	uniqueID := strings.ToUpper(strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
 	orderID := "GS" + uniqueID
 
 	// Buat pesanan
@@ -476,11 +554,11 @@ func (ctrl *OrderController) BuatPesananCODCart(c *gin.Context) {
 	}
 
 	// Hapus item cart
-	productIDs := make([]uint, len(req.Items))
+	productItemIDs := make([]uint, len(req.Items))
 	for i, item := range req.Items {
-		productIDs[i] = item.ProductID
+		productItemIDs[i] = item.ProductID // Asumsi ProductID sebenarnya adalah product_item_id
 	}
-	if err := tx.Where("user_id = ? AND product_id IN ?", req.UserID, productIDs).
+	if err := tx.Where("user_id = ? AND product_item_id IN ?", req.UserID, productItemIDs).
 		Delete(&models.Cart{}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to delete cart items"})
@@ -488,56 +566,57 @@ func (ctrl *OrderController) BuatPesananCODCart(c *gin.Context) {
 	}
 
 	// Buat order items dan update stok
+	// controllers/app/pesanan.go
 	for _, item := range req.Items {
+		// DAPATKAN PRODUCT ITEM LENGKAP
+		var productItem models.ProductItem
+		if err := tx.First(&productItem, item.ProductID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusNotFound, gin.H{"message": "Product item not found"})
+			return
+		}
+
+		if productItem.ProductID == 0 {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid product item"})
+			return
+		}
+
+		// PERBAIKAN: ISI PRODUCT_ID & PRODUCT_ITEM_ID
 		orderItem := models.OrderItem{
-			PesananID:  pesanan.ID,
-			ProductID:  item.ProductID,
-			NamaProduk: item.NamaProduk,
-			Harga:      int(math.Round(item.Harga)),
-			Jumlah:     item.Jumlah,
-			Berat:      int(math.Round(item.Berat)),
-			Satuan:     item.Satuan,
-			TotalHarga: int(math.Round(item.TotalHarga)),
+			PesananID:     pesanan.ID,
+			ProductItemID: productItem.ID, // ID dari ProductItem
+			NamaProduk:    item.NamaProduk,
+			Harga:         int(math.Round(item.Harga)),
+			Jumlah:        item.Jumlah,
+			Berat:         int(math.Round(item.Berat)),
+			Satuan:        item.Satuan,
+			TotalHarga:    int(math.Round(item.TotalHarga)),
 		}
 
 		if err := tx.Create(&orderItem).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create order item"})
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create order item: " + err.Error()})
 			return
 		}
 
-		// Update stok produk
-		var product models.Product
-		if err := tx.First(&product, item.ProductID).Error; err != nil {
+		// UPDATE STOK (sisa kode tetap sama)
+		productItem.Stok -= item.Jumlah
+		if err := tx.Save(&productItem).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusNotFound, gin.H{"message": fmt.Sprintf("Product %d not found", item.ProductID)})
-			return
-		}
-
-		if product.Stok < item.Jumlah {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("Insufficient stock for %s. Available: %d", product.NameProduk, product.Stok),
-			})
-			return
-		}
-
-		product.Stok -= item.Jumlah
-		if err := tx.Save(&product).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update product stock"})
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update stock"})
 			return
 		}
 	}
 
 	// Handle bonus afiliasi
 	if req.TotalBayar >= 200000 {
-		currentUser := user
+		referrerID := user.ReferredBy
 		bonusLevel := 1
-		maxBonusBase := 200000.0
 
-		for bonusLevel <= 2 {
-			if currentUser.ReferredBy == nil {
+		for bonusLevel <= 2 && referrerID != nil {
+			var referrer models.User
+			if err := tx.First(&referrer, *referrerID).Error; err != nil {
 				break
 			}
 
@@ -549,16 +628,17 @@ func (ctrl *OrderController) BuatPesananCODCart(c *gin.Context) {
 				bonusPercentage = 0.05
 			}
 
-			BonusAmount := maxBonusBase * bonusPercentage
+			BonusAmount := 200000 * bonusPercentage // Base tetap 200k
 
 			bonus := models.AfiliasiBonus{
-				UserId:          *currentUser.ReferredBy,
+				UserId:          *referrerID,
 				ReferralUserId:  req.UserID,
 				PesananId:       pesanan.ID,
 				BonusAmount:     BonusAmount,
 				BonusLevel:      bonusLevel,
 				ExpiryDate:      time.Now().AddDate(0, 1, 0),
 				BonusReceivedAt: time.Now(),
+				Status:          "pending", // Pastikan status diset
 			}
 
 			if err := tx.Create(&bonus).Error; err != nil {
@@ -567,10 +647,8 @@ func (ctrl *OrderController) BuatPesananCODCart(c *gin.Context) {
 				return
 			}
 
-			// Pindah ke level berikutnya
-			if err := tx.First(&currentUser, *currentUser.ReferredBy).Error; err != nil {
-				break
-			}
+			// Pindah ke level berikutnya (referrer dari referrer saat ini)
+			referrerID = referrer.ReferredBy
 			bonusLevel++
 		}
 	}
@@ -747,14 +825,14 @@ func (ctrl *OrderController) BuatPesananPoin(c *gin.Context) {
 	// Buat order items dan update stok
 	for _, item := range req.Items {
 		orderItem := models.OrderItem{
-			PesananID:  pesanan.ID,
-			ProductID:  item.ProductID,
-			NamaProduk: item.NamaProduk,
-			Harga:      int(math.Round(item.Harga)),
-			Jumlah:     item.Jumlah,
-			Berat:      int(math.Round(item.Berat)),
-			Satuan:     item.Satuan,
-			TotalHarga: int(math.Round(item.TotalHarga)),
+			PesananID:     pesanan.ID,
+			ProductItemID: item.ProductID,
+			NamaProduk:    item.NamaProduk,
+			Harga:         int(math.Round(item.Harga)),
+			Jumlah:        item.Jumlah,
+			Berat:         int(math.Round(item.Berat)),
+			Satuan:        item.Satuan,
+			TotalHarga:    int(math.Round(item.TotalHarga)),
 		}
 
 		if err := tx.Create(&orderItem).Error; err != nil {
@@ -764,32 +842,34 @@ func (ctrl *OrderController) BuatPesananPoin(c *gin.Context) {
 		}
 
 		// Update stok produk
-		var product models.Product
-		if err := tx.First(&product, item.ProductID).Error; err != nil {
+		var productItem models.ProductItem
+		if err := tx.Where("id = ?", item.ProductID).First(&productItem).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusNotFound, gin.H{"message": fmt.Sprintf("Product %d not found", item.ProductID)})
-			return
-		}
-
-		if product.Stok < item.Jumlah {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("Insufficient stock for %s. Available: %d", product.NameProduk, product.Stok),
+			c.JSON(http.StatusNotFound, gin.H{
+				"message": fmt.Sprintf("Product item with ID %d not found", item.ProductID),
 			})
 			return
 		}
 
-		product.Stok -= item.Jumlah
-		if err := tx.Save(&product).Error; err != nil {
+		if productItem.Stok < item.Jumlah {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update product stock"})
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Insufficient stock for %s. Available: %d", item.NamaProduk, productItem.Stok),
+			})
+			return
+		}
+
+		productItem.Stok -= item.Jumlah
+		if err := tx.Save(&productItem).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update product item stock"})
 			return
 		}
 	}
 
 	// Handle bonus afiliasi jika menggunakan poin
 	if req.TotalBayar >= 200 {
-		// Ambil nilai poin dari settings
+		// Ambil nilai poin dari settings untuk konversi threshold
 		var setting models.Setting
 		if err := tx.Where("key = ?", "hargaPoin").First(&setting).Error; err != nil {
 			tx.Rollback()
@@ -804,46 +884,53 @@ func (ctrl *OrderController) BuatPesananPoin(c *gin.Context) {
 			return
 		}
 
-		currentUser := user
-		bonusLevel := 1
-		maxBonusBase := 200.0
+		// Konversi totalBayar (poin) ke Rupiah untuk pengecekan threshold
+		totalBayarRupiah := req.TotalBayar * float64(nilaiPoin)
 
-		for bonusLevel <= 2 {
-			if currentUser.ReferredBy == nil {
-				break
+		// Trigger bonus jika mencapai Rp 200.000 (sama dengan COD)
+		if totalBayarRupiah >= 200000 {
+			// Logika bonus sama persis dengan BuatPesananCOD
+			referrerID := user.ReferredBy
+			bonusLevel := 1
+
+			for bonusLevel <= 2 && referrerID != nil {
+				var referrer models.User
+				if err := tx.First(&referrer, *referrerID).Error; err != nil {
+					break
+				}
+
+				bonusPercentage := 0.0
+				switch bonusLevel {
+				case 1:
+					bonusPercentage = 0.1
+				case 2:
+					bonusPercentage = 0.05
+				}
+
+				// Base tetap 200.000 Rupiah (sama dengan COD)
+				BonusAmount := 200000 * bonusPercentage
+
+				bonus := models.AfiliasiBonus{
+					UserId:          *referrerID,
+					ReferralUserId:  req.UserID,
+					PesananId:       pesanan.ID,
+					BonusAmount:     BonusAmount,
+					BonusLevel:      bonusLevel,
+					ExpiryDate:      time.Now().AddDate(0, 1, 0),
+					BonusReceivedAt: time.Now(),
+					Status:          "pending",
+				}
+
+				if err := tx.Create(&bonus).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create affiliate bonus"})
+					return
+				}
+
+				// Pindah ke level berikutnya (referrer dari referrer saat ini)
+				referrerID = referrer.ReferredBy
+				bonusLevel++
 			}
-
-			bonusPercentage := 0.0
-			switch bonusLevel {
-			case 1:
-				bonusPercentage = 0.1
-			case 2:
-				bonusPercentage = 0.05
-			}
-
-			BonusAmount := maxBonusBase * float64(nilaiPoin) * bonusPercentage
-
-			bonus := models.AfiliasiBonus{
-				UserId:          *currentUser.ReferredBy,
-				ReferralUserId:  req.UserID,
-				PesananId:       pesanan.ID,
-				BonusAmount:     BonusAmount,
-				BonusLevel:      bonusLevel,
-				ExpiryDate:      time.Now().AddDate(0, 1, 0),
-				BonusReceivedAt: time.Now(),
-			}
-
-			if err := tx.Create(&bonus).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create affiliate bonus"})
-				return
-			}
-
-			// Pindah ke level berikutnya
-			if err := tx.First(&currentUser, *currentUser.ReferredBy).Error; err != nil {
-				break
-			}
-			bonusLevel++
 		}
 	}
 
@@ -997,11 +1084,11 @@ func (ctrl *OrderController) BuatPesananPoinCart(c *gin.Context) {
 	}
 
 	// Hapus item cart
-	productIDs := make([]uint, len(req.Items))
+	productItemIDs := make([]uint, len(req.Items))
 	for i, item := range req.Items {
-		productIDs[i] = item.ProductID
+		productItemIDs[i] = item.ProductID // Karena ini sebenarnya product_item_id
 	}
-	if err := tx.Where("user_id = ? AND product_id IN ?", req.UserID, productIDs).
+	if err := tx.Where("user_id = ? AND product_item_id IN ?", req.UserID, productItemIDs).
 		Delete(&models.Cart{}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to delete cart items"})
@@ -1030,50 +1117,54 @@ func (ctrl *OrderController) BuatPesananPoinCart(c *gin.Context) {
 
 	// Buat order items dan update stok
 	for _, item := range req.Items {
-		orderItem := models.OrderItem{
-			PesananID:  pesanan.ID,
-			ProductID:  item.ProductID,
-			NamaProduk: item.NamaProduk,
-			Harga:      int(math.Round(item.Harga)),
-			Jumlah:     item.Jumlah,
-			Berat:      int(math.Round(item.Berat)),
-			Satuan:     item.Satuan,
-			TotalHarga: int(math.Round(item.TotalHarga)),
-		}
-
-		if err := tx.Create(&orderItem).Error; err != nil {
+		// DAPATKAN PRODUCT ITEM LENGKAP
+		var productItem models.ProductItem
+		if err := tx.First(&productItem, item.ProductID).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create order item"})
-			return
-		}
-
-		// Update stok produk
-		var product models.Product
-		if err := tx.First(&product, item.ProductID).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusNotFound, gin.H{"message": fmt.Sprintf("Product %d not found", item.ProductID)})
-			return
-		}
-
-		if product.Stok < item.Jumlah {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("Insufficient stock for %s. Available: %d", product.NameProduk, product.Stok),
+			c.JSON(http.StatusNotFound, gin.H{
+				"message": fmt.Sprintf("Product item %d not found", item.ProductID),
 			})
 			return
 		}
 
-		product.Stok -= item.Jumlah
-		if err := tx.Save(&product).Error; err != nil {
+		// PERBAIKAN: ISI PRODUCT_ID & PRODUCT_ITEM_ID
+		orderItem := models.OrderItem{
+			PesananID:     pesanan.ID,
+			ProductItemID: productItem.ID, // ID dari ProductItem
+			NamaProduk:    item.NamaProduk,
+			Harga:         int(math.Round(item.Harga)),
+			Jumlah:        item.Jumlah,
+			Berat:         int(math.Round(item.Berat)),
+			Satuan:        item.Satuan,
+			TotalHarga:    int(math.Round(item.TotalHarga)),
+		}
+
+		if err := tx.Create(&orderItem).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update product stock"})
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create order item: " + err.Error()})
+			return
+		}
+
+		// UPDATE STOK (sisa kode tetap sama)
+		if productItem.Stok < item.Jumlah {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Insufficient stock for %s. Available: %d", item.NamaProduk, productItem.Stok),
+			})
+			return
+		}
+
+		productItem.Stok -= item.Jumlah
+		if err := tx.Save(&productItem).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update product item stock"})
 			return
 		}
 	}
 
 	// Handle bonus afiliasi jika menggunakan poin
 	if req.TotalBayar >= 200 {
-		// Ambil nilai poin dari settings
+		// Ambil nilai poin dari settings untuk konversi threshold
 		var setting models.Setting
 		if err := tx.Where("key = ?", "hargaPoin").First(&setting).Error; err != nil {
 			tx.Rollback()
@@ -1088,46 +1179,53 @@ func (ctrl *OrderController) BuatPesananPoinCart(c *gin.Context) {
 			return
 		}
 
-		currentUser := user
-		bonusLevel := 1
-		maxBonusBase := 200.0
+		// Konversi totalBayar (poin) ke Rupiah untuk pengecekan threshold
+		totalBayarRupiah := req.TotalBayar * float64(nilaiPoin)
 
-		for bonusLevel <= 2 {
-			if currentUser.ReferredBy == nil {
-				break
+		// Trigger bonus jika mencapai Rp 200.000 (sama dengan COD)
+		if totalBayarRupiah >= 200000 {
+			// Logika bonus sama persis dengan BuatPesananCOD
+			referrerID := user.ReferredBy
+			bonusLevel := 1
+
+			for bonusLevel <= 2 && referrerID != nil {
+				var referrer models.User
+				if err := tx.First(&referrer, *referrerID).Error; err != nil {
+					break
+				}
+
+				bonusPercentage := 0.0
+				switch bonusLevel {
+				case 1:
+					bonusPercentage = 0.1
+				case 2:
+					bonusPercentage = 0.05
+				}
+
+				// Base tetap 200.000 Rupiah (sama dengan COD)
+				BonusAmount := 200000 * bonusPercentage
+
+				bonus := models.AfiliasiBonus{
+					UserId:          *referrerID,
+					ReferralUserId:  req.UserID,
+					PesananId:       pesanan.ID,
+					BonusAmount:     BonusAmount,
+					BonusLevel:      bonusLevel,
+					ExpiryDate:      time.Now().AddDate(0, 1, 0),
+					BonusReceivedAt: time.Now(),
+					Status:          "pending",
+				}
+
+				if err := tx.Create(&bonus).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create affiliate bonus"})
+					return
+				}
+
+				// Pindah ke level berikutnya (referrer dari referrer saat ini)
+				referrerID = referrer.ReferredBy
+				bonusLevel++
 			}
-
-			bonusPercentage := 0.0
-			switch bonusLevel {
-			case 1:
-				bonusPercentage = 0.1
-			case 2:
-				bonusPercentage = 0.05
-			}
-
-			BonusAmount := maxBonusBase * float64(nilaiPoin) * bonusPercentage
-
-			bonus := models.AfiliasiBonus{
-				UserId:          *currentUser.ReferredBy,
-				ReferralUserId:  req.UserID,
-				PesananId:       pesanan.ID,
-				BonusAmount:     BonusAmount,
-				BonusLevel:      bonusLevel,
-				ExpiryDate:      time.Now().AddDate(0, 1, 0),
-				BonusReceivedAt: time.Now(),
-			}
-
-			if err := tx.Create(&bonus).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create affiliate bonus"})
-				return
-			}
-
-			// Pindah ke level berikutnya
-			if err := tx.First(&currentUser, *currentUser.ReferredBy).Error; err != nil {
-				break
-			}
-			bonusLevel++
 		}
 	}
 

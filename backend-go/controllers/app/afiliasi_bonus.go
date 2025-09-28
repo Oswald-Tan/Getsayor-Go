@@ -118,7 +118,7 @@ func (ctrl *AfiliasiBonusController) ClaimBonus(c *gin.Context) {
 func (ctrl *AfiliasiBonusController) GetTotalBonus(c *gin.Context) {
 	userID := c.Param("userId")
 
-	var totalBonus int64
+	var totalBonus float64 // Ubah tipe data menjadi float64
 	if err := ctrl.DB.Model(&models.AfiliasiBonus{}).
 		Where("user_id = ? AND status = ?", userID, models.BonusClaimed).
 		Select("COALESCE(SUM(bonus_amount), 0)").
@@ -138,8 +138,11 @@ func (ctrl *AfiliasiBonusController) GetPendingBonus(c *gin.Context) {
 	userID := c.Param("userId")
 
 	var pendingBonuses []models.AfiliasiBonus
-	if err := ctrl.DB.Where("user_id = ? AND status = ?", userID, models.BonusPending).
-		Order("expiry_date ASC").
+	if err := ctrl.DB.
+		Joins("JOIN pesanan ON afiliasi_bonus.pesanan_id = pesanan.id").
+		Where("afiliasi_bonus.user_id = ? AND afiliasi_bonus.status = ? AND pesanan.status = ?",
+			userID, models.BonusPending, models.PesananDelivered).
+		Order("afiliasi_bonus.expiry_date ASC").
 		Find(&pendingBonuses).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return

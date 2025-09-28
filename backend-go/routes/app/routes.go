@@ -19,5 +19,6 @@ func SetupAppRoutes(router *gin.Engine, db *gorm.DB) {
 		setupProductAppRoutes(apiGroup, db)
 		SetupFavoriteRoutes(apiGroup, db)
 		setupProvinceCityAppRoutes(apiGroup, db)
+		setupSettingAppRoutes(apiGroup, db)
 	}
 }

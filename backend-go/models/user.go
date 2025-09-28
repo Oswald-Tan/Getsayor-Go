@@ -2,6 +2,8 @@ package models
 
 import (
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type User struct {
@@ -14,10 +16,11 @@ type User struct {
 	ReferralUsedAt  *time.Time
 	ResetOtp        *string `gorm:"type:varchar(255)"`
 	ResetOtpExpires *time.Time
-	IsApproved      bool      `gorm:"default:false"`
-	FCMToken        string    `gorm:"type:varchar(255)"`
-	CreatedAt       time.Time `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt       time.Time `gorm:"column:updated_at;autoUpdateTime"`
+	IsApproved      bool           `gorm:"default:false"`
+	FCMToken        string         `gorm:"type:varchar(255)"`
+	CreatedAt       time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt       time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
 
 	// Associations
 	Details   *DetailsUser `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`

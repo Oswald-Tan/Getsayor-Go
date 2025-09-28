@@ -3,9 +3,11 @@ package web
 import (
 	"crypto/rand"
 	"fmt"
+	"math"
 	"math/big"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -41,8 +43,10 @@ func (ctrl *UserController) GetUsers(c *gin.Context) {
 
 	// Add search condition if provided
 	if search != "" {
-		query = query.Joins("JOIN details_users ON details_users.user_id = users.id").
-			Where("details_users.fullname LIKE ?", "%"+search+"%")
+		searchPattern := "%" + strings.ToLower(search) + "%"
+		query = query.Joins("LEFT JOIN details_users ON details_users.user_id = users.id").
+			Where("(LOWER(details_users.fullname) LIKE ? OR LOWER(users.email) LIKE ?)",
+				searchPattern, searchPattern)
 	}
 
 	// Count total users
@@ -54,9 +58,9 @@ func (ctrl *UserController) GetUsers(c *gin.Context) {
 	// Get paginated users
 	query = query.Offset(offset).Limit(limit)
 
-	// Handle ordering - hanya tambahkan jika ada search
+	// Handle ordering
 	if search != "" {
-		query = query.Order("details_users.fullname ASC")
+		query = query.Order("LOWER(details_users.fullname) ASC") // Case-insensitive sorting
 	} else {
 		query = query.Order("users.id ASC") // Default ordering
 	}
@@ -108,29 +112,32 @@ func (ctrl *UserController) GetUsers(c *gin.Context) {
 func (ctrl *UserController) GetUserApprove(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "0"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
-	search := c.Query("search")
+	search := strings.ToLower(c.Query("search")) // Konversi ke lowercase untuk pencarian case-insensitive
 	offset := page * limit
 
 	var totalRows int64
 	var users []models.User
 
+	// Query dasar
 	query := ctrl.DB.Model(&models.User{}).
 		Where("is_approved = ? AND role_id = ?", false, 2).
 		Preload("Details").
 		Preload("Role")
 
+	// Jika ada pencarian
 	if search != "" {
 		query = query.Joins("JOIN details_users ON details_users.user_id = users.id").
-			Where("details_users.fullname LIKE ?", "%"+search+"%")
+			Where("(LOWER(details_users.fullname) LIKE ? OR LOWER(users.email) LIKE ?)",
+				"%"+search+"%", "%"+search+"%")
 	}
 
-	// Count total users
+	// Hitung total pengguna
 	if err := query.Count(&totalRows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Get paginated users
+	// Dapatkan pengguna dengan paginasi
 	if err := query.Offset(offset).Limit(limit).
 		Order("created_at DESC").
 		Find(&users).Error; err != nil {
@@ -138,14 +145,24 @@ func (ctrl *UserController) GetUserApprove(c *gin.Context) {
 		return
 	}
 
-	// Prepare response
+	// Siapkan respons
 	response := make([]gin.H, len(users))
 	for i, user := range users {
+		fullname := ""
+		if user.Details != nil {
+			fullname = user.Details.Fullname
+		}
+
+		roleName := ""
+		if user.Role != nil {
+			roleName = user.Role.RoleName
+		}
+
 		response[i] = gin.H{
 			"id":         user.ID,
-			"fullname":   user.Details.Fullname,
+			"fullname":   fullname,
 			"email":      user.Email,
-			"role":       user.Role.RoleName,
+			"role":       roleName,
 			"isApproved": user.IsApproved,
 		}
 	}
@@ -585,36 +602,208 @@ func (ctrl *UserController) UpdateUser(c *gin.Context) {
 }
 
 // DeleteUser deletes a user
-func (ctrl *UserController) DeleteUser(c *gin.Context) {
+func (ctrl *UserController) SoftDeleteUser(c *gin.Context) {
 	id := c.Param("id")
 
-	// Mulai transaction
-	tx := ctrl.DB.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	// Hapus details terlebih dahulu
-	if err := tx.Where("user_id = ?", id).Delete(&models.DetailsUser{}).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	userID, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
-	// Hapus user
-	if err := tx.Delete(&models.User{}, id).Error; err != nil {
-		tx.Rollback()
+	// Soft delete menggunakan Unscoped untuk menghindari constraint error
+	if err := ctrl.DB.Where("id = ?", userID).Delete(&models.User{}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Commit transaction
-	if err := tx.Commit().Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
+}
+
+// UserController.go - Tambahkan function RestoreUser
+func (ctrl *UserController) RestoreUser(c *gin.Context) {
+	id := c.Param("id")
+
+	userID, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Restore user dengan Unscoped()
+	result := ctrl.DB.Unscoped().Model(&models.User{}).Where("id = ?", userID).Update("deleted_at", nil)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User restored successfully"})
+}
+
+func (ctrl *UserController) GetDeletedUsers(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	search := c.Query("search")
+	offset := (page - 1) * limit
+
+	var totalRows int64
+	var users []models.User
+
+	// Build base query untuk deleted users
+	query := ctrl.DB.Unscoped().Model(&models.User{}).
+		Preload("Details").
+		Preload("Role").
+		Preload("Points").
+		Where("deleted_at IS NOT NULL")
+
+	// Add search condition jika ada pencarian
+	if search != "" {
+		searchPattern := "%" + strings.ToLower(search) + "%"
+		query = query.Joins("LEFT JOIN details_users ON details_users.user_id = users.id").
+			Where("(LOWER(details_users.fullname) LIKE ? OR LOWER(users.email) LIKE ?)",
+				searchPattern, searchPattern)
+	}
+
+	// Count total deleted users
+	if err := query.Count(&totalRows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get paginated deleted users
+	query = query.Offset(offset).Limit(limit)
+
+	// Handle ordering
+	if search != "" {
+		query = query.Order("LOWER(details_users.fullname) ASC") // Case-insensitive sorting
+	} else {
+		query = query.Order("users.deleted_at DESC") // Default ordering by deletion time
+	}
+
+	if err := query.Find(&users).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Prepare response
+	response := make([]gin.H, len(users))
+	for i, user := range users {
+		points := 0
+		if user.Points != nil {
+			points = user.Points.Points
+		}
+
+		fullname := ""
+		if user.Details != nil {
+			fullname = user.Details.Fullname
+		}
+
+		roleName := ""
+		if user.Role != nil {
+			roleName = user.Role.RoleName
+		}
+
+		response[i] = gin.H{
+			"id":         user.ID,
+			"fullname":   fullname,
+			"email":      user.Email,
+			"role":       roleName,
+			"points":     points,
+			"deleted_at": user.DeletedAt,
+		}
+	}
+
+	totalPages := int(math.Ceil(float64(totalRows) / float64(limit)))
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":       response,
+		"page":       page,
+		"limit":      limit,
+		"totalPages": totalPages,
+		"totalRows":  totalRows,
+	})
+}
+
+// Untuk delete permanen (hard delete)
+func (ctrl *UserController) PermanentDeleteUser(c *gin.Context) {
+	id := c.Param("id")
+	userID, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Mulai transaction
+	tx := ctrl.DB.Begin()
+
+	// Urutan penghapusan: dari child paling bawah ke parent
+	// 1. Hapus data dari tabel yang paling dependen terlebih dahulu
+	if err := tx.Unscoped().Exec("DELETE FROM order_items WHERE pesanan_id IN (SELECT id FROM pesanan WHERE user_id = ?)", userID).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to delete order_items: %v", err.Error()),
+		})
+		return
+	}
+
+	// 2. Sekarang hapus pesanan (setelah order_items dihapus)
+	if err := tx.Unscoped().Where("user_id = ?", userID).Delete(&models.Pesanan{}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to delete pesanan: %v", err.Error()),
+		})
+		return
+	}
+
+	// 3. Lanjutkan dengan tabel lainnya yang memiliki user_id
+	tablesToDelete := []interface{}{
+		&models.Favorite{},
+		&models.Cart{},
+		&models.TopUpPoin{},
+		&models.Address{},
+		&models.BankAccount{},
+		&models.DetailsUser{},
+		&models.UserPoints{},
+		&models.UserStats{},
+		&models.TotalBonus{},
+	}
+
+	for _, table := range tablesToDelete {
+		if err := tx.Unscoped().Where("user_id = ?", userID).Delete(table).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to delete related data: %v", err.Error()),
+			})
+			return
+		}
+	}
+
+	// Handle self-referential constraints (Referrals)
+	if err := tx.Unscoped().Model(&models.User{}).Where("referred_by = ?", userID).Update("referred_by", nil).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Terakhir hapus user
+	result := tx.Unscoped().Delete(&models.User{}, userID)
+	if result.Error != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	tx.Commit()
+	c.JSON(http.StatusOK, gin.H{"message": "User permanently deleted"})
 }

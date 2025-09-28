@@ -295,3 +295,32 @@ func (ctrl *AfiliasiBonusController) TransferBonus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Bonus transferred successfully"})
 }
+
+func (ctrl *AfiliasiBonusController) DeleteAfiliasiBonus(c *gin.Context) {
+	id := c.Param("id")
+
+	// Cari bonus berdasarkan ID
+	var bonus models.AfiliasiBonus
+	if err := ctrl.DB.First(&bonus, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "Bonus not found",
+		})
+		return
+	}
+
+	// Hapus bonus
+	if err := ctrl.DB.Delete(&bonus).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to delete bonus",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Bonus deleted successfully",
+	})
+}

@@ -114,7 +114,23 @@ func (ctrl *CityProvinceController) DeleteProvinceAndCities(c *gin.Context) {
 		}
 	}()
 
-	// Delete cities first
+	// 1. Hapus shipping_rates terkait kota di provinsi ini
+	if err := tx.Exec(`
+        DELETE FROM shipping_rates 
+        WHERE city_id IN (
+            SELECT id FROM cities WHERE province_id = ?
+        )
+    `, id).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error deleting shipping rates",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 2. Hapus cities
 	if err := tx.Where("province_id = ?", id).Delete(&models.City{}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -125,7 +141,7 @@ func (ctrl *CityProvinceController) DeleteProvinceAndCities(c *gin.Context) {
 		return
 	}
 
-	// Then delete province
+	// 3. Hapus province
 	if err := tx.Where("id = ?", id).Delete(&models.Province{}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{

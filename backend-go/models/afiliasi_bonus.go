@@ -22,9 +22,9 @@ type AfiliasiBonus struct {
 	BonusLevel      int                 `gorm:"not null"`
 	ExpiryDate      time.Time           `gorm:"not null"`
 	Status          AfiliasiBonusStatus `gorm:"type:varchar(20);not null;default:'pending'"`
-	ClaimedAt       *time.Time
-	BonusReceivedAt time.Time `gorm:"not null"`
-	TransferredAt   *time.Time
+	ClaimedAt       *time.Time          `gorm:"default:null"`
+	BonusReceivedAt time.Time           `gorm:"not null"`
+	TransferredAt   *time.Time          `gorm:"default:null"`
 
 	// Associations
 	User         User    `gorm:"foreignKey:UserId;references:ID"`

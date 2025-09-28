@@ -34,7 +34,8 @@ func GenerateUniqueFilename() string {
 func (ctrl *ProductController) GetProducts(c *gin.Context) {
 	var products []models.Product
 
-	if err := ctrl.DB.Find(&products).Error; err != nil {
+	// Preload ProductItems untuk mendapatkan data relasi
+	if err := ctrl.DB.Preload("ProductItems").Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": "Error fetching products",
@@ -63,15 +64,15 @@ func (ctrl *ProductController) GetProductsApp(c *gin.Context) {
 
 	offset := (page - 1) * perPage
 
-	// Build query
-	query := ctrl.DB.Model(&models.Product{})
+	// Build base query
+	baseQuery := ctrl.DB.Model(&models.Product{})
 	if category != "" && category != "All" {
-		query = query.Where("kategori LIKE ?", "%"+category+"%")
+		baseQuery = baseQuery.Where("kategori LIKE ?", "%"+category+"%")
 	}
 
-	// Get total count
+	// Get total count (without preload)
 	var total int64
-	if err := query.Count(&total).Error; err != nil {
+	if err := baseQuery.Count(&total).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": "Error counting products",
@@ -80,9 +81,13 @@ func (ctrl *ProductController) GetProductsApp(c *gin.Context) {
 		return
 	}
 
-	// Get products
+	// Get products with preload
 	var products []models.Product
-	if err := query.Offset(offset).Limit(perPage).Order("name_produk ASC").Find(&products).Error; err != nil {
+	query := baseQuery.Preload("ProductItems") // Preload relasi disini
+	if err := query.Offset(offset).
+		Limit(perPage).
+		Order("name_produk ASC").
+		Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": "Error fetching products",
@@ -143,7 +148,7 @@ func (ctrl *ProductController) SearchProductsApp(c *gin.Context) {
 		dbQuery = dbQuery.Where("kategori = ?", category)
 	}
 
-	// Get total count
+	// Get total count (tanpa preload untuk akurasi count)
 	var total int64
 	if err := dbQuery.Count(&total).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -154,9 +159,15 @@ func (ctrl *ProductController) SearchProductsApp(c *gin.Context) {
 		return
 	}
 
-	// Get products
+	// Tambahkan preload untuk relasi ProductItems
+	dbQuery = dbQuery.Preload("ProductItems")
+
+	// Get products with relations
 	var products []models.Product
-	if err := dbQuery.Offset(offset).Limit(perPage).Order("name_produk ASC").Find(&products).Error; err != nil {
+	if err := dbQuery.Offset(offset).
+		Limit(perPage).
+		Order("name_produk ASC").
+		Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": "Error fetching products",
@@ -187,7 +198,8 @@ func (ctrl *ProductController) GetProductById(c *gin.Context) {
 	id := c.Param("id")
 
 	var product models.Product
-	if err := ctrl.DB.First(&product, id).Error; err != nil {
+	// Preload ProductItems untuk mendapatkan data relasi
+	if err := ctrl.DB.Preload("ProductItems").First(&product, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"message": "Product not found",
@@ -196,273 +208,6 @@ func (ctrl *ProductController) GetProductById(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": product})
-}
-
-type CreateProductRequest struct {
-	NameProduk string `form:"nameProduk" binding:"required"`
-	Deskripsi  string `form:"deskripsi" binding:"required"`
-	Kategori   string `form:"kategori" binding:"required"`
-	Stok       string `form:"stok" binding:"required"`    // Ubah ke string
-	HargaRp    string `form:"hargaRp" binding:"required"` // Ubah ke string
-	Jumlah     string `form:"jumlah" binding:"required"`  // Ubah ke string
-	Satuan     string `form:"satuan" binding:"required"`
-}
-
-// CreateProduct handles POST /products
-func (ctrl *ProductController) CreateProduct(c *gin.Context) {
-	var req CreateProductRequest
-	if err := c.ShouldBind(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid input: " + err.Error(),
-		})
-		return
-	}
-
-	// Konversi string ke int/float
-	stok, err := strconv.Atoi(req.Stok)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid stok format",
-		})
-		return
-	}
-
-	hargaRp, err := strconv.ParseFloat(req.HargaRp, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid hargaRp format",
-		})
-		return
-	}
-
-	jumlah, err := strconv.Atoi(req.Jumlah)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid jumlah format",
-		})
-		return
-	}
-
-	// Get point value setting
-	var setting models.Setting
-	if err := ctrl.DB.Where("key = ?", "hargaPoin").First(&setting).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Harga Poin setting not found",
-		})
-		return
-	}
-
-	// Convert setting value to float
-	poinValue, err := strconv.ParseFloat(setting.Value, 64)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Invalid hargaPoin value",
-		})
-		return
-	}
-
-	// Calculate point price
-	hargaPoin := int(math.Round(hargaRp / poinValue))
-
-	// Get uploaded filename from middleware context
-	imageFilename := c.GetString("fileName")
-
-	// Convert HargaRp to int before storing
-	hargaRpInt := int(math.Round(hargaRp))
-
-	// Create product
-	product := models.Product{
-		NameProduk: req.NameProduk,
-		Deskripsi:  req.Deskripsi,
-		Kategori:   req.Kategori,
-		Stok:       stok,
-		HargaPoin:  hargaPoin,
-		HargaRp:    hargaRpInt,
-		Jumlah:     jumlah,
-		Satuan:     req.Satuan,
-		Image:      imageFilename,
-	}
-
-	if err := ctrl.DB.Create(&product).Error; err != nil {
-		// Clean up uploaded file if database error
-		if imageFilename != "" {
-			os.Remove("./uploads/" + imageFilename)
-		}
-
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error creating product",
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"message": "Product created successfully",
-		"data":    product,
-	})
-}
-
-type UpdateProductRequest struct {
-	NameProduk string  `form:"nameProduk"`
-	Deskripsi  string  `form:"deskripsi"`
-	Kategori   string  `form:"kategori"`
-	Stok       int     `form:"stok"`
-	HargaRp    float64 `form:"hargaRp"`
-	Jumlah     int     `form:"jumlah"`
-	Satuan     string  `form:"satuan"`
-}
-
-// UpdateProduct handles PATCH /products/:id
-func (ctrl *ProductController) UpdateProduct(c *gin.Context) {
-	id := c.Param("id")
-	var req UpdateProductRequest
-
-	if err := c.ShouldBind(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid input: " + err.Error(),
-		})
-		return
-	}
-
-	// Get existing product
-	var product models.Product
-	if err := ctrl.DB.First(&product, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"message": "Product not found",
-		})
-		return
-	}
-
-	// Validate fields
-	if req.NameProduk != "" && (len(req.NameProduk) < 3 || len(req.NameProduk) > 100) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Name must be between 3 and 100 characters",
-		})
-		return
-	}
-
-	if req.Stok < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Stock must be non-negative",
-		})
-		return
-	}
-
-	if req.HargaRp < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Price must be non-negative",
-		})
-		return
-	}
-
-	if req.Jumlah < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Quantity must be non-negative",
-		})
-		return
-	}
-
-	// Get uploaded filename from middleware context
-	newImageFilename := c.GetString("fileName") // PERBAIKAN DI SINI
-	var oldImageFilename string
-
-	if newImageFilename != "" {
-		// Save old image for cleanup
-		oldImageFilename = product.Image
-	}
-
-	// Convert request value to int for comparison
-	hargaRpInt := int(math.Round(req.HargaRp))
-
-	// Update point price if hargaRp changed
-	if req.HargaRp >= 0 && hargaRpInt != product.HargaRp {
-		// Get point value setting
-		var setting models.Setting
-		if err := ctrl.DB.Where("key = ?", "hargaPoin").First(&setting).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": "Harga Poin setting not found",
-			})
-			return
-		}
-
-		// Convert setting value to float
-		poinValue, err := strconv.ParseFloat(setting.Value, 64)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": "Invalid hargaPoin value",
-			})
-			return
-		}
-
-		// Calculate new point price
-		product.HargaPoin = int(math.Round(req.HargaRp / poinValue))
-		product.HargaRp = hargaRpInt
-	}
-
-	// Update fields
-	if req.NameProduk != "" {
-		product.NameProduk = req.NameProduk
-	}
-	if req.Deskripsi != "" {
-		product.Deskripsi = req.Deskripsi
-	}
-	if req.Kategori != "" {
-		product.Kategori = req.Kategori
-	}
-	if req.Stok > 0 {
-		product.Stok = req.Stok
-	}
-	if req.Jumlah > 0 {
-		product.Jumlah = req.Jumlah
-	}
-	if req.Satuan != "" {
-		product.Satuan = req.Satuan
-	}
-	if newImageFilename != "" {
-		product.Image = newImageFilename
-	}
-
-	// Save changes
-	if err := ctrl.DB.Save(&product).Error; err != nil {
-		// Clean up new file if database error
-		if newImageFilename != "" {
-			os.Remove("./uploads/" + newImageFilename)
-		}
-
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error updating product",
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	// Clean up old image if new one was uploaded
-	if oldImageFilename != "" {
-		os.Remove("./uploads/" + oldImageFilename)
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Product updated successfully",
-		"data":    product,
-	})
 }
 
 // DeleteProduct handles DELETE /products/:id

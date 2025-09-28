@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 // FormatRupiah helper
@@ -27,42 +29,49 @@ func FormatRupiah(amount int) string {
 }
 
 func SendTelegramNotification(message string) {
-	// Mendapatkan token dan chat ID dari environment variables
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
-	chatID := os.Getenv("TELEGRAM_CHAT_ID")
+	rawChatIDs := os.Getenv("TELEGRAM_CHAT_ID")
 
-	if token == "" || chatID == "" {
-		log.Println("Telegram bot token or chat ID not set in environment variables")
+	if token == "" || rawChatIDs == "" {
+		log.Println("Telegram bot token or chat IDs not set")
 		return
 	}
 
-	// Membuat URL API Telegram
+	// Split chat IDs and remove any empty/whitespace-only entries
+	chatIDs := strings.Split(rawChatIDs, ",")
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 
-	// Membuat payload request
-	payload := map[string]any{
-		"chat_id":    chatID,
-		"text":       message,
-		"parse_mode": "HTML",
-	}
+	for _, id := range chatIDs {
+		chatID := strings.TrimSpace(id)
+		if chatID == "" {
+			continue // Skip empty entries
+		}
 
-	// Marshal payload menjadi JSON
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Error marshaling Telegram payload: %v", err)
-		return
-	}
+		payload := map[string]any{
+			"chat_id":    chatID,
+			"text":       message,
+			"parse_mode": "HTML",
+		}
 
-	// Membuat HTTP request
-	resp, err := http.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		log.Printf("Failed to send Telegram notification: %v", err)
-		return
-	}
-	defer resp.Body.Close()
+		jsonPayload, err := json.Marshal(payload)
+		if err != nil {
+			log.Printf("[Chat %s] Error marshaling payload: %v", chatID, err)
+			continue
+		}
 
-	// Cek response status
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Telegram API returned non-OK status: %s", resp.Status)
+		resp, err := http.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
+		if err != nil {
+			log.Printf("[Chat %s] Send failed: %v", chatID, err)
+			continue
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			log.Printf("[Chat %s] API error: %s | Response: %s", chatID, resp.Status, string(body))
+		} else {
+			log.Printf("[Chat %s] Notification sent", chatID)
+		}
 	}
 }

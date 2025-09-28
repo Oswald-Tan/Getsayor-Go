@@ -2,8 +2,10 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -22,28 +24,57 @@ func NewCartController(db *gorm.DB) *CartController {
 // AddToCart menambahkan item ke keranjang
 func (ctrl *CartController) AddToCart(c *gin.Context) {
 	type RequestBody struct {
-		UserID    uint   `json:"userId" binding:"required"`
-		ProductID string `json:"productId" binding:"required"`
-		Quantity  int    `json:"quantity" binding:"required"`
+		UserID        uint `json:"userId" form:"userId" binding:"required"`
+		ProductItemID uint `json:"productItemId" form:"productItemId" binding:"required"`
+		Quantity      int  `json:"quantity" form:"quantity" binding:"required"`
 	}
 
 	var reqBody RequestBody
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		fmt.Printf("Binding error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid request body"})
 		return
 	}
 
+	fmt.Printf("Request body: %+v\n", reqBody)
+
 	tx := ctrl.DB.Begin()
 
-	// Cek apakah item sudah ada di keranjang
+	// Check stock availability
+	var productItem models.ProductItem
+	if err := tx.First(&productItem, reqBody.ProductItemID).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Product variant not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Error checking product stock"})
+		}
+		return
+	}
+
+	if productItem.Stok < reqBody.Quantity {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Insufficient stock"})
+		return
+	}
+
+	// Check if item already exists in cart
 	var existingCartItem models.Cart
-	err := tx.Where("user_id = ? AND product_id = ? AND status = ?",
-		reqBody.UserID, reqBody.ProductID, "active").
-		First(&existingCartItem).Error
+	err := tx.Where("user_id = ? AND product_item_id = ? AND status = ?",
+		reqBody.UserID, reqBody.ProductItemID, "active").First(&existingCartItem).Error
 
 	if err == nil {
-		// Update jumlah jika item sudah ada
-		existingCartItem.Quantity += reqBody.Quantity
+		// Update quantity if item exists
+		newQuantity := existingCartItem.Quantity + reqBody.Quantity
+
+		// Check updated quantity against stock
+		if productItem.Stok < newQuantity {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Exceeds available stock"})
+			return
+		}
+
+		existingCartItem.Quantity = newQuantity
 		if err := tx.Save(&existingCartItem).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update cart"})
@@ -63,12 +94,12 @@ func (ctrl *CartController) AddToCart(c *gin.Context) {
 		return
 	}
 
-	// Tambahkan item baru ke keranjang
+	// Add new item to cart
 	newCartItem := models.Cart{
-		UserID:    reqBody.UserID,
-		ProductID: reqBody.ProductID,
-		Quantity:  reqBody.Quantity,
-		Status:    "active",
+		UserID:        reqBody.UserID,
+		ProductItemID: reqBody.ProductItemID,
+		Quantity:      reqBody.Quantity,
+		Status:        "active",
 	}
 
 	if err := tx.Create(&newCartItem).Error; err != nil {
@@ -92,7 +123,6 @@ func (ctrl *CartController) GetCartByUser(c *gin.Context) {
 		return
 	}
 
-	// Konversi userID ke uint
 	uid, err := strconv.ParseUint(userID, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid user ID"})
@@ -100,13 +130,17 @@ func (ctrl *CartController) GetCartByUser(c *gin.Context) {
 	}
 
 	var cartItems []models.Cart
-	if err := ctrl.DB.Where("user_id = ? AND status = ?", uid, "active").
-		Preload("Product").
+	if err := ctrl.DB.
+		Where("user_id = ? AND status = ?", uint(uid), "active").
+		Preload("ProductItem").
+		Preload("ProductItem.Product").
 		Find(&cartItems).Error; err != nil {
+
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Error retrieving cart"})
 		return
 	}
 
+	// Handle empty cart
 	if len(cartItems) == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"cart":    []string{},
@@ -115,15 +149,78 @@ func (ctrl *CartController) GetCartByUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"cart": cartItems})
+	// Mapping untuk response yang diinginkan Flutter
+	type CartResponse struct {
+		ID            uint      `json:"ID"`
+		UserID        uint      `json:"UserID"`
+		ProductItemID uint      `json:"ProductItemID"`
+		Quantity      int       `json:"Quantity"`
+		Notes         string    `json:"Notes"`
+		Status        string    `json:"Status"`
+		CreatedAt     time.Time `json:"CreatedAt"`
+		UpdatedAt     time.Time `json:"UpdatedAt"`
+		ProductItem   struct {
+			ID         uint      `json:"ID"`
+			ProductID  uint      `json:"ProductID"`
+			Stok       int       `json:"Stok"`
+			HargaPoin  int       `json:"HargaPoin"`
+			HargaRp    int       `json:"HargaRp"`
+			Jumlah     int       `json:"Jumlah"`
+			Satuan     string    `json:"Satuan"`
+			CreatedAt  time.Time `json:"CreatedAt"`
+			UpdatedAt  time.Time `json:"UpdatedAt"`
+			NameProduk string    `json:"NameProduk"`
+			Image      string    `json:"Image"`
+		} `json:"product_item"`
+	}
+
+	var response []CartResponse
+
+	for _, item := range cartItems {
+		cr := CartResponse{
+			ID:            item.ID,
+			UserID:        item.UserID,
+			ProductItemID: item.ProductItemID,
+			Quantity:      item.Quantity,
+			Notes:         item.Notes,
+			Status:        item.Status,
+			CreatedAt:     item.CreatedAt,
+			UpdatedAt:     item.UpdatedAt,
+		}
+
+		if item.ProductItem != nil {
+			cr.ProductItem.ID = item.ProductItem.ID
+			cr.ProductItem.ProductID = item.ProductItem.ProductID
+			cr.ProductItem.Stok = item.ProductItem.Stok
+			cr.ProductItem.HargaPoin = item.ProductItem.HargaPoin
+			cr.ProductItem.HargaRp = item.ProductItem.HargaRp
+			cr.ProductItem.Jumlah = item.ProductItem.Jumlah
+			cr.ProductItem.Satuan = item.ProductItem.Satuan
+			cr.ProductItem.CreatedAt = item.ProductItem.CreatedAt
+			cr.ProductItem.UpdatedAt = item.ProductItem.UpdatedAt
+
+			// Ambil data dari relasi Product
+			if item.ProductItem.Product != nil {
+				cr.ProductItem.NameProduk = item.ProductItem.Product.NameProduk
+				cr.ProductItem.Image = item.ProductItem.Product.Image
+			} else {
+				cr.ProductItem.NameProduk = "Unknown Product"
+				cr.ProductItem.Image = ""
+			}
+		}
+
+		response = append(response, cr)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"cart": response})
 }
 
 // UpdateQuantityInCart mengupdate kuantitas item di keranjang
 func (ctrl *CartController) UpdateQuantityInCart(c *gin.Context) {
 	type RequestBody struct {
-		UserID    uint   `json:"userId" binding:"required"`
-		ProductID string `json:"productId" binding:"required"`
-		Quantity  int    `json:"quantity" binding:"required"`
+		UserID        uint `json:"userId" binding:"required"`        // Ubah menjadi uint
+		ProductItemID uint `json:"productItemId" binding:"required"` // Gunakan productItemId
+		Quantity      int  `json:"quantity" binding:"required"`
 	}
 
 	var reqBody RequestBody
@@ -139,11 +236,11 @@ func (ctrl *CartController) UpdateQuantityInCart(c *gin.Context) {
 
 	tx := ctrl.DB.Begin()
 
-	// Cek item di keranjang
+	// Cari item cart berdasarkan productItemID
 	var cartItem models.Cart
-	if err := tx.Where("user_id = ? AND product_id = ? AND status = ?",
-		reqBody.UserID, reqBody.ProductID, "active").
-		Preload("Product").
+	if err := tx.Where("user_id = ? AND product_item_id = ? AND status = ?",
+		reqBody.UserID, reqBody.ProductItemID, "active").
+		Preload("ProductItem"). // Preload ProductItem saja
 		First(&cartItem).Error; err != nil {
 		tx.Rollback()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -154,17 +251,17 @@ func (ctrl *CartController) UpdateQuantityInCart(c *gin.Context) {
 		return
 	}
 
-	// Cek stok produk
-	if cartItem.Product == nil {
+	// Cek ketersediaan stok langsung dari ProductItem
+	if cartItem.ProductItem == nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "Product data not found"})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Product item data not found"})
 		return
 	}
 
-	if reqBody.Quantity > cartItem.Product.Stok {
+	if reqBody.Quantity > cartItem.ProductItem.Stok {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message": "Stok produk tidak mencukupi. Stok tersedia: " + strconv.Itoa(cartItem.Product.Stok),
+			"message": "Stok produk tidak mencukupi. Stok tersedia: " + strconv.Itoa(cartItem.ProductItem.Stok),
 		})
 		return
 	}

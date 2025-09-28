@@ -5,7 +5,7 @@ import (
 )
 
 type TopUpPoin struct {
-	ID            uint      `gorm:"primaryKey;autoIncrement"`
+	ID            uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	TopupID       string    `gorm:"type:varchar(255);not null;uniqueIndex"`
 	PurchaseID    string    `gorm:"type:varchar(255);not null"`
 	InvoiceNumber string    `gorm:"type:varchar(255);not null;uniqueIndex"`

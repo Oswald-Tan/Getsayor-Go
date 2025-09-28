@@ -1,4 +1,3 @@
-// controllers/web/auth_controller.go
 package web
 
 import (
@@ -7,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -74,6 +74,14 @@ func HandleLogin(c *gin.Context) {
 	// Validasi role
 	if user.Role == nil {
 		c.JSON(http.StatusForbidden, gin.H{"message": "User role not found"})
+		return
+	}
+
+	if user.Role.RoleName != "admin" && user.Role.RoleName != "kurir" {
+		c.JSON(http.StatusForbidden, gin.H{
+			"message": "Access denied",
+			"error":   "Only admin and courier roles are allowed to login",
+		})
 		return
 	}
 
@@ -194,13 +202,19 @@ func HandleLogout(c *gin.Context) {
 	// Hapus semua nilai session
 	session.Clear()
 
+	// Tentukan domain berdasarkan environment
+	domain := "localhost" // default untuk development
+	if os.Getenv("ENV") == "production" {
+		domain = ".getsayor.com" // format domain utama untuk production
+	}
+
 	// Set opsi untuk menghapus cookie
 	session.Options(sessions.Options{
 		Path:     "/",
-		Domain:   "localhost", // Harus sama dengan saat login
-		MaxAge:   -1,          // Instruksikan browser untuk menghapus cookie
+		Domain:   domain, // Harus sama dengan saat login
+		MaxAge:   -1,     // Instruksikan browser untuk menghapus cookie
 		HttpOnly: true,
-		Secure:   false, // Sesuaikan dengan environment
+		Secure:   os.Getenv("ENV") == "production",
 		SameSite: http.SameSiteLaxMode,
 	})
 

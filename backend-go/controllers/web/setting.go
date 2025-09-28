@@ -56,7 +56,7 @@ func (ctrl *SettingController) GetHargaPoin(c *gin.Context) {
 }
 
 type SetHargaPoinRequest struct {
-	HargaPoin interface{} `json:"hargaPoin" binding:"required"`
+	HargaPoin any `json:"hargaPoin" binding:"required"`
 }
 
 func (ctrl *SettingController) SetHargaPoin(c *gin.Context) {
@@ -114,7 +114,7 @@ func (ctrl *SettingController) SetHargaPoin(c *gin.Context) {
 			// Buat baru jika tidak ditemukan
 			setting = models.Setting{
 				Key:   "hargaPoin",
-				Value: strconv.Itoa(hargaPoinInt), // Gunakan hargaPoinInt yang sudah dikonversi
+				Value: strconv.Itoa(hargaPoinInt),
 			}
 			if err := ctrl.DB.Create(&setting).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
@@ -132,7 +132,7 @@ func (ctrl *SettingController) SetHargaPoin(c *gin.Context) {
 		}
 	} else {
 		// Update jika sudah ada
-		setting.Value = strconv.Itoa(hargaPoinInt) // Gunakan hargaPoinInt yang sudah dikonversi
+		setting.Value = strconv.Itoa(hargaPoinInt)
 		if err := ctrl.DB.Save(&setting).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
@@ -142,29 +142,29 @@ func (ctrl *SettingController) SetHargaPoin(c *gin.Context) {
 		}
 	}
 
-	// Perbarui hargaRp di semua produk
-	var products []models.Product
-	if err := ctrl.DB.Find(&products).Error; err != nil {
+	// Perbarui hargaRp di semua product items (bukan di product)
+	var productItems []models.ProductItem
+	if err := ctrl.DB.Find(&productItems).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "Failed to fetch products: " + err.Error(),
+			"message": "Failed to fetch product items: " + err.Error(),
 		})
 		return
 	}
 
-	// Update hargaRp untuk semua produk
-	for _, product := range products {
-		// Skip jika hargaPoin produk 0
-		if product.HargaPoin == 0 {
+	// Update hargaRp untuk semua product items
+	for _, item := range productItems {
+		// Skip jika hargaPoin item 0
+		if item.HargaPoin == 0 {
 			continue
 		}
 
-		// Gunakan hargaPoinInt yang sudah dikonversi
-		product.HargaRp = product.HargaPoin * hargaPoinInt
-		if err := ctrl.DB.Save(&product).Error; err != nil {
+		// Hitung hargaRp baru
+		item.HargaRp = item.HargaPoin * hargaPoinInt
+		if err := ctrl.DB.Save(&item).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
-				"message": "Failed to update product: " + err.Error(),
+				"message": "Failed to update product item: " + err.Error(),
 			})
 			return
 		}
@@ -173,5 +173,9 @@ func (ctrl *SettingController) SetHargaPoin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Harga Poin updated successfully",
+		"data": gin.H{
+			"hargaPoin":     hargaPoinInt,
+			"updated_items": len(productItems),
+		},
 	})
 }

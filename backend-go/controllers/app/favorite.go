@@ -96,31 +96,45 @@ func (ctrl *FavoriteController) GetUserFavorites(c *gin.Context) {
 
 	var favorites []models.Favorite
 	if err := ctrl.DB.Where("user_id = ?", userID).
-		Preload("Product").
+		Preload("Product.ProductItems"). // Preload ProductItems
 		Find(&favorites).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Error retrieving favorites"})
 		return
 	}
 
-	// Transform ke format response
+	// Transform ke format response yang sama dengan get produk
 	favoriteProducts := make([]gin.H, 0, len(favorites))
 	for _, fav := range favorites {
 		if fav.Product == nil {
 			continue
 		}
 
+		// Siapkan array untuk product items
+		productItems := make([]gin.H, 0, len(fav.Product.ProductItems))
+		for _, item := range fav.Product.ProductItems {
+			productItems = append(productItems, gin.H{
+				"ID":        item.ID,
+				"ProductID": item.ProductID,
+				"Stok":      item.Stok,
+				"HargaPoin": item.HargaPoin,
+				"HargaRp":   item.HargaRp,
+				"Jumlah":    item.Jumlah,
+				"Satuan":    item.Satuan,
+				"CreatedAt": item.CreatedAt,
+				"UpdatedAt": item.UpdatedAt,
+			})
+		}
+
 		product := gin.H{
-			"id":         fav.Product.ID,
-			"nameProduk": fav.Product.NameProduk,
-			"deskripsi":  fav.Product.Deskripsi,
-			"kategori":   fav.Product.Kategori,
-			"stok":       fav.Product.Stok,
-			"hargaPoin":  fav.Product.HargaPoin,
-			"hargaRp":    fav.Product.HargaRp,
-			"jumlah":     fav.Product.Jumlah,
-			"satuan":     fav.Product.Satuan,
-			"image":      fav.Product.Image,
-			"isFavorite": true, // Explicitly set to true
+			"ID":           fav.Product.ID,
+			"NameProduk":   fav.Product.NameProduk,
+			"Deskripsi":    fav.Product.Deskripsi,
+			"Kategori":     fav.Product.Kategori,
+			"Image":        fav.Product.Image,
+			"CreatedAt":    fav.Product.CreatedAt,
+			"UpdatedAt":    fav.Product.UpdatedAt,
+			"IsFavorite":   true,
+			"ProductItems": productItems, // Array of items
 		}
 		favoriteProducts = append(favoriteProducts, product)
 	}

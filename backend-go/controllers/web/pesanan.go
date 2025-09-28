@@ -35,30 +35,82 @@ func (ctrl *OrderController) GetPesanan(c *gin.Context) {
 		where["status"] = status
 	}
 
+	db := ctrl.DB
+
 	// Count total orders
 	var totalRows int64
-	query := ctrl.DB.Model(&models.Pesanan{}).Where(where)
-	if search != "" {
-		query = query.Joins("JOIN order_items ON order_items.pesanan_id = pesanan.id").
-			Where("order_items.nama_produk LIKE ?", "%"+search+"%")
-	}
-	query.Count(&totalRows)
+	queryCount := db.Model(&models.Pesanan{}).Where(where)
 
-	totalPage := (int(totalRows) + limit - 1) / limit // Ceil division
+	if search != "" {
+		queryCount = queryCount.
+			Joins("LEFT JOIN order_items ON order_items.pesanan_id = pesanan.id").
+			Joins("LEFT JOIN users ON users.id = pesanan.user_id").
+			Joins("LEFT JOIN details_users ON details_users.user_id = users.id").
+			Where("(LOWER(order_items.nama_produk) LIKE LOWER(?) OR "+
+				"LOWER(details_users.fullname) LIKE LOWER(?) OR "+
+				"LOWER(pesanan.order_id) LIKE LOWER(?))",
+				"%"+search+"%", "%"+search+"%", "%"+search+"%")
+	}
+	queryCount.Count(&totalRows)
+
+	totalPage := (int(totalRows) + limit - 1) / limit
 
 	// Get orders
 	var pesanan []models.Pesanan
-	query = ctrl.DB.Preload("User", func(db *gorm.DB) *gorm.DB {
-		return db.Preload("Details").Preload("Addresses", "is_default = ?", true)
-	}).Preload("OrderItems.Product").Where(where)
+	var err error
 
-	if search != "" {
-		query = query.Joins("JOIN order_items ON order_items.pesanan_id = pesanan.id").
-			Where("order_items.nama_produk LIKE ?", "%"+search+"%")
+	// Preload configuration for user and order items
+	preloadUser := func(db *gorm.DB) *gorm.DB {
+		return db.Preload("Details").Preload("Addresses", "is_default = ?", true)
 	}
 
-	err := query.Order("pesanan.created_at DESC").
-		Offset(offset).Limit(limit).Find(&pesanan).Error
+	preloadOrderItems := func(db *gorm.DB) *gorm.DB {
+		return db.Preload("ProductItem.Product")
+	}
+
+	if search != "" {
+		// Langkah 1: Dapatkan ID pesanan yang unik dengan pagination
+		var ids []uint
+		subQuery := db.Model(&models.Pesanan{}).
+			Select("pesanan.id").
+			Joins("LEFT JOIN order_items ON order_items.pesanan_id = pesanan.id").
+			Joins("LEFT JOIN users ON users.id = pesanan.user_id").
+			Joins("LEFT JOIN details_users ON details_users.user_id = users.id").
+			Where(where).
+			Where("(LOWER(order_items.nama_produk) LIKE LOWER(?) OR "+
+				"LOWER(details_users.fullname) LIKE LOWER(?) OR "+
+				"LOWER(pesanan.order_id) LIKE LOWER(?))",
+									"%"+search+"%", "%"+search+"%", "%"+search+"%").
+			Group("pesanan.id, pesanan.created_at"). // Sertakan created_at di GROUP BY
+			Order("pesanan.created_at DESC").
+			Offset(offset).Limit(limit)
+
+		if err = subQuery.Pluck("id", &ids).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+			return
+		}
+
+		// Langkah 2: Ambil data lengkap berdasarkan ID
+		if len(ids) > 0 {
+			err = db.
+				Preload("User", preloadUser).
+				Preload("OrderItems", preloadOrderItems).
+				Where("id IN (?)", ids).
+				Order("created_at DESC").
+				Find(&pesanan).Error
+		} else {
+			pesanan = []models.Pesanan{} // Return empty array
+		}
+	} else {
+		// Query tanpa pencarian
+		query := db.
+			Preload("User", preloadUser).
+			Preload("OrderItems", preloadOrderItems).
+			Where(where)
+
+		err = query.Order("pesanan.created_at DESC").
+			Offset(offset).Limit(limit).Find(&pesanan).Error
+	}
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
@@ -91,6 +143,32 @@ func (ctrl *OrderController) GetPesananByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, pesanan)
+}
+
+// GetPesananByID handles GET /orders/:id
+func (ctrl *OrderController) GetPesananStatusByID(c *gin.Context) {
+	id := c.Param("id")
+
+	var pesanan models.Pesanan
+	err := ctrl.DB.Preload("OrderItems").
+		Preload("User").
+		Where("id = ?", id).
+		First(&pesanan).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+
+	// Return the order with current status
+	c.JSON(http.StatusOK, gin.H{
+		"data":   pesanan,
+		"status": pesanan.Status, // Explicitly include the current status
+	})
 }
 
 // GetPesananByUser handles GET /orders/user/:userId

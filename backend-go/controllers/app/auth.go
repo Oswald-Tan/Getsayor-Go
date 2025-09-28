@@ -1,9 +1,12 @@
 package app
 
 import (
+	"backend-go/config"
 	"backend-go/middleware"
 	"backend-go/models"
 	"crypto/rand"
+	"fmt"
+	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -34,9 +37,9 @@ func RegisterUser(c *gin.Context) {
 	}
 
 	if reqBody.Fullname == "" || reqBody.Password == "" || reqBody.Email == "" ||
-		reqBody.PhoneNumber == "" || reqBody.RoleName == "" {
+		reqBody.PhoneNumber == "" || reqBody.RoleName == "" || reqBody.ReferralCode == "" { // Tambahkan validasi referralCode
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message": "Fullname, password, email, phone_number, and role are required.",
+			"message": "Fullname, password, email, phone number, role, and referral code are required.",
 		})
 		return
 	}
@@ -84,16 +87,14 @@ func RegisterUser(c *gin.Context) {
 	// Handle referral
 	var referredBy *uint
 	var referralUsedAt *time.Time
-	if reqBody.ReferralCode != "" {
-		var referrer models.User
-		if err := db.Where("referral_code = ?", reqBody.ReferralCode).First(&referrer).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid referral code."})
-			return
-		}
-		referredBy = &referrer.ID
-		now := time.Now()
-		referralUsedAt = &now
+	var referrer models.User
+	if err := db.Where("referral_code = ?", reqBody.ReferralCode).First(&referrer).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid referral code."})
+		return
 	}
+	referredBy = &referrer.ID
+	now := time.Now()
+	referralUsedAt = &now
 
 	// Create user
 	newUser := models.User{
@@ -209,6 +210,11 @@ func LoginUser(c *gin.Context) {
 		return
 	}
 
+	statsCtrl := NewUserStatsAppController(db)
+	if _, err := statsCtrl.CreateOrUpdateUserStats(user.ID); err != nil {
+		log.Printf("Failed to update user stats: %v", err)
+	}
+
 	var role models.Role
 	if err := db.First(&role, user.RoleID).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to get user role"})
@@ -264,26 +270,32 @@ func GetUserData(c *gin.Context) {
 
 	db := c.MustGet("db").(*gorm.DB)
 
-	// Struct untuk respons referral
 	type ReferralItem struct {
-		ID             uint       `json:"id"`
-		Email          string     `json:"email"`
-		CreatedAt      time.Time  `json:"created_at"`
-		ReferralUsedAt *time.Time `json:"referral_used_at,omitempty"`
-		Fullname       string     `json:"fullname"`
+		ID                 uint       `json:"id"`
+		Email              string     `json:"email"`
+		CreatedAt          time.Time  `json:"created_at"`
+		ReferralUsedAt     *time.Time `json:"referral_used_at,omitempty"`
+		Fullname           string     `json:"fullname"`
+		MonthlySpent       int        `json:"monthly_spent"`         // Total belanja bulan ini (dari Pesanan)
+		MonthlyBonus       int        `json:"monthly_bonus"`         // Bonus bulan ini (dari AfiliasiBonus) - Level 1
+		MonthlyBonusLevel2 int        `json:"monthly_bonus_level2"`  // Bonus level 2 bulan ini
+		IsEligibleForBonus bool       `json:"is_eligible_for_bonus"` // Apakah eligible untuk bonus
+		EligibleOrders     int        `json:"eligible_orders"`       // Jumlah transaksi eligible (dari AfiliasiBonus)
 	}
 
 	type UserResponse struct {
-		ID           uint           `json:"id"`
-		Email        string         `json:"email"`
-		CreatedAt    time.Time      `json:"created_at"`
-		Role         string         `json:"role"`
-		Points       int            `json:"points"`
-		ReferralCode string         `json:"referralCode"`
-		Fullname     string         `json:"fullname"`
-		PhoneNumber  string         `json:"phone_number"`
-		PhotoProfile string         `json:"photo_profile"`
-		Referrals    []ReferralItem `json:"referrals"`
+		ID               uint           `json:"id"`
+		Email            string         `json:"email"`
+		CreatedAt        time.Time      `json:"created_at"`
+		Role             string         `json:"role"`
+		Points           int            `json:"points"`
+		ReferralCode     string         `json:"referralCode"`
+		Fullname         string         `json:"fullname"`
+		PhoneNumber      string         `json:"phone_number"`
+		PhotoProfile     string         `json:"photo_profile"`
+		Referrals        []ReferralItem `json:"referrals"`
+		TotalBonusLevel1 int            `json:"total_bonus_level1"` // Total bonus level 1
+		TotalBonusLevel2 int            `json:"total_bonus_level2"` // Total bonus level 2
 	}
 
 	var user models.User
@@ -320,20 +332,120 @@ func GetUserData(c *gin.Context) {
 
 	// Isi data referrals
 	response.Referrals = make([]ReferralItem, 0)
+	now := time.Now()
+	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Nanosecond)
+
+	// Hitung total bonus level 1 dan level 2
+	totalBonusLevel1 := 0
+	totalBonusLevel2 := 0
+
 	for _, referral := range user.Referrals {
 		fullname := ""
 		if referral.Details != nil {
 			fullname = referral.Details.Fullname
 		}
 
+		type BonusSummary struct {
+			TotalBonus float64 `gorm:"column:total_bonus"`
+			Count      int64   `gorm:"column:transaction_count"`
+		}
+
+		var bonusSummaryLevel1 BonusSummary
+
+		// QUERY 1: Ambil data bonus LEVEL 1 dari AFILIASI_BONUS yang terkait dengan PESANAN DELIVERED
+		err := db.Model(&models.AfiliasiBonus{}).
+			Joins("JOIN pesanan ON afiliasi_bonus.pesanan_id = pesanan.id").
+			Where("afiliasi_bonus.user_id = ? AND afiliasi_bonus.referral_user_id = ? AND afiliasi_bonus.bonus_level = ? AND pesanan.status = ? AND afiliasi_bonus.status IN (?, ?) AND afiliasi_bonus.bonus_received_at BETWEEN ? AND ?",
+				user.ID,                 // User yang mendapatkan bonus
+				referral.ID,             // User yang direferral
+				1,                       // Bonus level 1
+				models.PesananDelivered, // HANYA pesanan dengan status delivered
+				models.BonusPending,
+				models.BonusClaimed,
+				startOfMonth,
+				endOfMonth).
+			Select("COALESCE(SUM(afiliasi_bonus.bonus_amount), 0) as total_bonus, COUNT(*) as transaction_count").
+			Scan(&bonusSummaryLevel1).Error
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to calculate monthly bonus level 1"})
+			return
+		}
+
+		// QUERY 2: Ambil data bonus LEVEL 2 dari AFILIASI_BONUS yang terkait dengan PESANAN DELIVERED
+		var bonusSummaryLevel2 BonusSummary
+		err = db.Model(&models.AfiliasiBonus{}).
+			Joins("JOIN pesanan ON afiliasi_bonus.pesanan_id = pesanan.id").
+			Joins("JOIN users AS level2_user ON afiliasi_bonus.referral_user_id = level2_user.id").
+			Where("afiliasi_bonus.user_id = ? AND afiliasi_bonus.bonus_level = ? AND pesanan.status = ? AND afiliasi_bonus.status IN (?, ?) AND afiliasi_bonus.bonus_received_at BETWEEN ? AND ? AND level2_user.referred_by = ?",
+				user.ID,                 // User yang mendapatkan bonus (user A)
+				2,                       // Bonus level 2
+				models.PesananDelivered, // HANYA pesanan dengan status delivered
+				models.BonusPending,
+				models.BonusClaimed,
+				startOfMonth,
+				endOfMonth,
+				referral.ID, // Harus berasal dari user yang diundang oleh referral saat ini
+			).
+			Select("COALESCE(SUM(afiliasi_bonus.bonus_amount), 0) as total_bonus, COUNT(*) as transaction_count").
+			Scan(&bonusSummaryLevel2).Error
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to calculate monthly bonus level 2"})
+			return
+		}
+
+		// QUERY 3: Ambil total belanja DELIVERED untuk referral
+		var monthlySpent int
+		err = db.Model(&models.Pesanan{}).
+			Where("user_id = ? AND status = ? AND created_at BETWEEN ? AND ?",
+				referral.ID,             // User yang direferral
+				models.PesananDelivered, // HANYA status delivered
+				startOfMonth,
+				endOfMonth).
+			Select("COALESCE(SUM(total_bayar), 0)").
+			Scan(&monthlySpent).Error
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to calculate monthly spent"})
+			return
+		}
+
+		// Tentukan eligibility berdasarkan PESANAN DELIVERED
+		monthlyBonusLevel1 := int(bonusSummaryLevel1.TotalBonus)
+		monthlyBonusLevel2 := int(bonusSummaryLevel2.TotalBonus)
+		eligibleOrdersCount := int(bonusSummaryLevel1.Count)
+
+		// Eligibility: Ada bonus HANYA jika ada pesanan delivered >= 200.000
+		hasEligibleDeliveredOrder := monthlySpent >= 200000 && eligibleOrdersCount > 0
+
+		// Jika tidak ada pesanan delivered yang eligible, set bonus menjadi 0
+		if !hasEligibleDeliveredOrder {
+			monthlyBonusLevel1 = 0
+			monthlyBonusLevel2 = 0
+		}
+
+		// Tambahkan ke total bonus
+		totalBonusLevel1 += monthlyBonusLevel1
+		totalBonusLevel2 += monthlyBonusLevel2
+
 		response.Referrals = append(response.Referrals, ReferralItem{
-			ID:             referral.ID,
-			Email:          referral.Email,
-			CreatedAt:      referral.CreatedAt,
-			ReferralUsedAt: referral.ReferralUsedAt,
-			Fullname:       fullname,
+			ID:                 referral.ID,
+			Email:              referral.Email,
+			CreatedAt:          referral.CreatedAt,
+			ReferralUsedAt:     referral.ReferralUsedAt,
+			Fullname:           fullname,
+			MonthlySpent:       monthlySpent,              // Dari PESANAN DELIVERED
+			MonthlyBonus:       monthlyBonusLevel1,        // Bonus level 1 dari AFILIASI_BONUS (hanya untuk delivered)
+			MonthlyBonusLevel2: monthlyBonusLevel2,        // Bonus level 2 dari AFILIASI_BONUS (hanya untuk delivered)
+			IsEligibleForBonus: hasEligibleDeliveredOrder, // Berdasarkan delivered orders
+			EligibleOrders:     eligibleOrdersCount,       // Jumlah transaksi eligible dari AFILIASI_BONUS
 		})
 	}
+
+	response.TotalBonusLevel1 = totalBonusLevel1
+	response.TotalBonusLevel2 = totalBonusLevel2
 
 	c.JSON(http.StatusOK, response)
 }
@@ -402,7 +514,116 @@ func UpdateUser(c *gin.Context) {
 
 // Reset Password Functions
 func RequestResetOtp(c *gin.Context) {
-	// Implement email sending logic
+	type RequestBody struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+
+	var reqBody RequestBody
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid request body"})
+		return
+	}
+
+	db := c.MustGet("db").(*gorm.DB)
+
+	var user models.User
+	if err := db.Where("email = ?", reqBody.Email).First(&user).Error; err != nil {
+		// Kembalikan status 404 jika email tidak ditemukan
+		c.JSON(http.StatusNotFound, gin.H{"message": "Email tidak terdaftar di sistem kami"})
+		return
+	}
+
+	// Generate OTP (6 digit)
+	otp, err := generateOtp(6)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Gagal menghasilkan OTP"})
+		return
+	}
+
+	// Set OTP dan waktu kadaluarsa (10 menit)
+	expiryTime := time.Now().Add(10 * time.Minute)
+	user.ResetOtp = &otp
+	user.ResetOtpExpires = &expiryTime
+
+	if err := db.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Gagal menyimpan OTP"})
+		return
+	}
+
+	// Siapkan konten email
+	subject := "Your OTP Code for Password Reset"
+	body := fmt.Sprintf(`
+	<!DOCTYPE html>
+	<html>
+	<head>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				background-color: #f4f4f4;
+				color: #333;
+				margin: 0;
+				padding: 0;
+			}
+			.container {
+				max-width: 600px;
+				margin: 20px auto;
+				background: #fff;
+				padding: 20px;
+				border-radius: 8px;
+				box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+			}
+			h1 {
+				color: #007BFF;
+				text-align: center;
+			}
+			p {
+				font-size: 16px;
+				text-align: center;
+			}
+			.otp {
+				font-size: 24px;
+				font-weight: bold;
+				color: #007BFF;
+				text-align: center;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<h1>Password Reset OTP</h1>
+			<p>Your OTP code is:</p>
+			<p class="otp">%s</p>
+			<p>This code will expire in 10 minutes.</p>
+			<p>If you did not request this, please ignore this email.</p>
+		</div>
+	</body>
+	</html>
+	`, otp)
+
+	// Kirim email menggunakan mailer
+	mailer := config.NewMailer()
+	if err := mailer.SendEmail(reqBody.Email, subject, body); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Gagal mengirim email OTP"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Jika email terdaftar, OTP telah dikirim",
+		"success": true,
+	})
+}
+
+func generateOtp(length int) (string, error) {
+	const digits = "0123456789"
+	otp := make([]byte, length)
+	for i := range otp {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
+		if err != nil {
+			return "", err
+		}
+		otp[i] = digits[num.Int64()]
+	}
+	return string(otp), nil
 }
 
 func VerifyResetOtp(c *gin.Context) {
@@ -446,7 +667,7 @@ func VerifyResetOtp(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "OTP verified successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "OTP berhasil diverifikasi"})
 }
 
 func ResetPassword(c *gin.Context) {

@@ -26,5 +26,10 @@ func setupAfiliasiBonusRoutes(rg *gin.RouterGroup, db *gorm.DB) {
 			middleware.VerifyUser,
 			middleware.AdminOnly,
 			bonusController.TransferBonus)
+
+		bonusGroup.DELETE("/:id",
+			middleware.VerifyUser,
+			middleware.AdminOnly,
+			bonusController.DeleteAfiliasiBonus)
 	}
 }

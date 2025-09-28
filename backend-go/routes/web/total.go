@@ -13,7 +13,7 @@ func setupTotalWebRoutes(rg *gin.RouterGroup, db *gorm.DB) {
 	{
 		totalController := web.NewTotalController(db)
 
-		totalGroup.GET("/pesanan-pending", middleware.VerifyUser, middleware.AdminOnly, totalController.GetTotalPesananPending)
+		totalGroup.GET("/pesanan-pending", middleware.VerifyUser, totalController.GetTotalPesananPending)
 		totalGroup.GET("/user-approve-false", middleware.VerifyUser, middleware.AdminOnly, totalController.GetTotalUserApproveFalse)
 		totalGroup.GET("/produk", middleware.VerifyUser, middleware.AdminOnly, totalController.GetTotalProduk)
 	}

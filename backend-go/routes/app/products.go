@@ -16,8 +16,6 @@ func setupProductAppRoutes(rg *gin.RouterGroup, db *gorm.DB) {
 		// Admin routes
 		productGroup.GET("", middleware.AuthMiddleware(), middleware.CheckTokenBlacklist(), productController.GetProducts)
 		productGroup.GET("/:id", middleware.AuthMiddleware(), middleware.CheckTokenBlacklist(), productController.GetProductById)
-		productGroup.POST("", middleware.AuthMiddleware(), middleware.CheckTokenBlacklist(), middleware.UploadFile("image"), productController.CreateProduct)
-		productGroup.PATCH("/:id", middleware.AuthMiddleware(), middleware.CheckTokenBlacklist(), middleware.UploadFile("image"), productController.UpdateProduct)
 		productGroup.DELETE("/:id", middleware.AuthMiddleware(), middleware.CheckTokenBlacklist(), productController.DeleteProduct)
 
 		// App routes (no admin check, but require authentication)

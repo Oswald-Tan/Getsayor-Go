@@ -121,9 +121,14 @@ func main() {
 	}))
 
 	store := cookie.NewStore([]byte(os.Getenv("SESSION_SECRET")))
+	domain := "localhost"
+	if os.Getenv("ENV") == "production" {
+		domain = ".getsayor.com" // Ganti dengan domain utama Anda (awali dengan titik)
+	}
+
 	store.Options(sessions.Options{
 		Path:     "/",
-		Domain:   "",        // Kosongkan untuk localhost (akan bekerja lebih baik)
+		Domain:   domain,    // Kosongkan untuk localhost (akan bekerja lebih baik)
 		MaxAge:   86400 * 7, // 7 hari
 		HttpOnly: true,
 		Secure:   os.Getenv("ENV") == "production", // false di development
